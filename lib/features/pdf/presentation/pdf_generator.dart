@@ -227,15 +227,15 @@ class PdfGenerator {
     final h = (maxY - minY).clamp(100.0, 10000.0);
 
     final maxD = max(w, h);
-    final scale = 90.0 / maxD;
+    final scale = 80.0 / maxD;
 
     return pw.Container(
-      width: w * scale,
-      height: h * scale,
+      width: w * scale + 20,
+      height: h * scale + 20,
       child: pw.Stack(
         children: project.frames.map<pw.Widget>((frame) {
-          final rx = (frame.x - minX) * scale;
-          final ry = (frame.y - minY) * scale;
+          final rx = (frame.x - minX) * scale + 10;
+          final ry = (frame.y - minY) * scale + 10;
           final rw = frame.renderWidth * scale;
           final rh = frame.renderHeight * scale;
 
@@ -278,18 +278,46 @@ class PdfGenerator {
           return pw.Positioned(
             left: rx,
             top: ry,
-            child: pw.SizedBox(
-              width: rw,
-              height: rh,
-              child: _buildFrameDrawing(
-                frame,
-                scale,
-                hideLeft: hideLeft,
-                hideRight: hideRight,
-                hideTop: hideTop,
-                hideBottom: hideBottom,
-              ),
-            ),
+            child: pw.Stack(
+              children: [
+                pw.SizedBox(
+                  width: rw,
+                  height: rh,
+                  child: _buildFrameDrawing(
+                    frame,
+                    scale,
+                    hideLeft: hideLeft,
+                    hideRight: hideRight,
+                    hideTop: hideTop,
+                    hideBottom: hideBottom,
+                  ),
+                ),
+                if (!hideTop)
+                  pw.Positioned(
+                    top: -6,
+                    left: 0,
+                    right: 0,
+                    child: pw.Center(
+                      child: pw.Text(
+                        frame.renderWidth.toStringAsFixed(0),
+                        style: pw.TextStyle(fontSize: 4, color: PdfColors.blue800, fontWeight: pw.FontWeight.bold)
+                      )
+                    )
+                  ),
+                if (!hideLeft)
+                  pw.Positioned(
+                    top: 0,
+                    bottom: 0,
+                    left: -12,
+                    child: pw.Center(
+                      child: pw.Text(
+                        frame.renderHeight.toStringAsFixed(0),
+                        style: pw.TextStyle(fontSize: 4, color: PdfColors.blue800, fontWeight: pw.FontWeight.bold)
+                      )
+                    )
+                  ),
+              ]
+            )
           );
         }).toList(),
       ),
@@ -327,6 +355,47 @@ class PdfGenerator {
     );
   }
 
+  static pw.Widget _getOpeningSvg(OpeningTypeNode type) {
+    String svg = '';
+    final stroke = 'stroke="rgba(0,0,0,0.5)" stroke-width="2" fill="none"';
+    switch (type.type) {
+      case 'fixed':
+        svg = '<svg viewBox="0 0 100 100" preserveAspectRatio="none"><line x1="0" y1="0" x2="100" y2="100" $stroke/><line x1="100" y1="0" x2="0" y2="100" $stroke/></svg>';
+        break;
+      case 'casement':
+        svg = '<svg viewBox="0 0 100 100" preserveAspectRatio="none"><path d="M 0 0 L 100 50 L 0 100" $stroke/></svg>';
+        break;
+      case 'sliding':
+        svg = '<svg viewBox="0 0 100 100" preserveAspectRatio="none"><line x1="20" y1="50" x2="80" y2="50" $stroke/></svg>';
+        break;
+      case 'swing':
+        if (type.direction == 'double') {
+           svg = '<svg viewBox="0 0 100 100" preserveAspectRatio="none"><path d="M 0 100 A 40 80 0 0 1 50 20" $stroke/><path d="M 100 100 A 40 80 0 0 0 50 20" $stroke/></svg>';
+        } else {
+           svg = '<svg viewBox="0 0 100 100" preserveAspectRatio="none"><path d="M 0 100 A 80 80 0 0 1 80 20" $stroke/></svg>';
+        }
+        break;
+      case 'folding':
+        String lines = '';
+        for (int i = 1; i < type.leafCount; i++) {
+          final x = 100 * i / type.leafCount;
+          lines += '<line x1="$x" y1="0" x2="$x" y2="100" $stroke/>';
+        }
+        svg = '<svg viewBox="0 0 100 100" preserveAspectRatio="none">$lines</svg>';
+        break;
+      case 'louvre':
+        String lines = '';
+        for (int i = 1; i < 6; i++) {
+          final y = 100 * i / 6;
+          lines += '<line x1="0" y1="$y" x2="100" y2="$y" $stroke/>';
+        }
+        svg = '<svg viewBox="0 0 100 100" preserveAspectRatio="none">$lines</svg>';
+        break;
+    }
+    if (svg.isEmpty) return pw.SizedBox();
+    return pw.SvgImage(svg: svg);
+  }
+
   static pw.Widget _buildPanelDrawing(PanelNode panel, double scale) {
     if (panel.isLeaf) {
       return pw.Container(
@@ -334,11 +403,20 @@ class PdfGenerator {
           border: pw.Border.all(color: PdfColors.black, width: 0.4),
           color: _getPanelPdfColor(panel.opening),
         ),
-        child: pw.Center(
-          child: pw.Text(
-            panel.opening.shortLabel,
-            style: pw.TextStyle(fontSize: 3, fontWeight: pw.FontWeight.bold, color: PdfColors.black),
-          ),
+        child: pw.Stack(
+          fit: pw.StackFit.expand,
+          children: [
+            pw.Container(
+              padding: const pw.EdgeInsets.all(1),
+              child: _getOpeningSvg(panel.opening)
+            ),
+            pw.Center(
+              child: pw.Text(
+                panel.opening.shortLabel,
+                style: pw.TextStyle(fontSize: 3, fontWeight: pw.FontWeight.bold, color: PdfColors.black),
+              ),
+            ),
+          ],
         ),
       );
     }
@@ -402,7 +480,7 @@ class PdfGenerator {
           children: [
             pw.Text('Hormat Kami,', style: const pw.TextStyle(fontSize: 9)),
             pw.SizedBox(height: 48),
-            pw.Text('( EstimaTek )', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold)),
+            pw.Text('( .................................... )', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold)),
           ],
         ),
         pw.Column(

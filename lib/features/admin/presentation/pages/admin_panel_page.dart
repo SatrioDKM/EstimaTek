@@ -296,21 +296,48 @@ class _AdminPanelPageState extends State<AdminPanelPage> {
                                   ),
                                 ),
                                 
-                                // Toggle Slider Switch
-                                Switch(
-                                  value: isActive,
-                                  activeColor: const Color(0xFFFF6D00),
-                                  inactiveThumbColor: Colors.grey,
-                                  inactiveTrackColor: Colors.white10,
-                                  onChanged: (bool value) {
-                                    // Intercept toggle with a confirmation modal dialog
-                                    _showConfirmToggleDialog(
-                                      context: context,
-                                      email: email,
-                                      currentStatus: isActive,
-                                    );
-                                  },
-                                ),
+                                if (email == 'satriodkm97@gmail.com')
+                                  const Padding(
+                                    padding: EdgeInsets.symmetric(horizontal: 12.0),
+                                    child: Tooltip(
+                                      message: 'Owner tidak dapat dinonaktifkan',
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(
+                                            Icons.security,
+                                            color: Color(0xFFFF6D00),
+                                            size: 20,
+                                          ),
+                                          SizedBox(width: 4),
+                                          Text(
+                                            'Owner',
+                                            style: TextStyle(
+                                              color: Color(0xFFFF6D00),
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 12,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  )
+                                else
+                                  // Toggle Slider Switch
+                                  Switch(
+                                    value: isActive,
+                                    activeColor: const Color(0xFFFF6D00),
+                                    inactiveThumbColor: Colors.grey,
+                                    inactiveTrackColor: Colors.white10,
+                                    onChanged: (bool value) {
+                                      // Intercept toggle with a confirmation modal dialog
+                                      _showConfirmToggleDialog(
+                                        context: context,
+                                        email: email,
+                                        currentStatus: isActive,
+                                      );
+                                    },
+                                  ),
                               ],
                             ),
                           ),

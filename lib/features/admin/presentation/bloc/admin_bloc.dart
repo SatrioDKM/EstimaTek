@@ -80,6 +80,11 @@ class AdminBloc extends Bloc<AdminEvent, AdminState> {
     ToggleUserStatusRequested event,
     Emitter<AdminState> emit,
   ) async {
+    if (event.email == 'satriodkm97@gmail.com') {
+      emit(AdminError('Email owner tidak boleh dinonaktifkan!'));
+      return;
+    }
+
     try {
       final targetNewStatus = !event.currentStatus;
       await _adminRepository.toggleUserStatus(event.email, targetNewStatus);

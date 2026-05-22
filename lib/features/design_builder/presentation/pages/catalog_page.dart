@@ -12,29 +12,50 @@ class CatalogPage extends StatefulWidget {
 
 class _CatalogPageState extends State<CatalogPage> with SingleTickerProviderStateMixin {
   final MaterialRepository _repository = MaterialRepository();
-  late TabController _tabController;
+  TabController? _tabController;
+  List<String> _categories = [];
   List<MaterialModel> _materials = [];
   bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 4, vsync: this);
     _loadMaterials();
   }
 
   Future<void> _loadMaterials() async {
     setState(() => _isLoading = true);
     final list = await _repository.getMaterials();
+    final cats = list.map((m) => m.category).toSet().toList();
+    if (cats.isEmpty) cats.add('Kusen');
+    
+    // Sort categories based on predefined order
+    final predefinedOrder = [
+      'Kusen', 'Daun Pintu', 'Daun Jendela', 'Sliding Door', 'Sliding Set', 'Sliding Door / Window set jumbo & ekonomis', 'Kaca', 'Aksesoris', 'Jasa'
+    ];
+    cats.sort((a, b) {
+      int idxA = predefinedOrder.indexOf(a);
+      int idxB = predefinedOrder.indexOf(b);
+      if (idxA == -1 && idxB == -1) return a.compareTo(b);
+      if (idxA == -1) return 1;
+      if (idxB == -1) return -1;
+      return idxA.compareTo(idxB);
+    });
+
     setState(() {
       _materials = list;
+      _categories = cats;
+      if (_tabController == null || _tabController!.length != _categories.length) {
+        _tabController?.dispose();
+        _tabController = TabController(length: _categories.length, vsync: this);
+      }
       _isLoading = false;
     });
   }
 
   @override
   void dispose() {
-    _tabController.dispose();
+    _tabController?.dispose();
     super.dispose();
   }
 
@@ -102,10 +123,16 @@ class _CatalogPageState extends State<CatalogPage> with SingleTickerProviderStat
     showDialog(
       context: context,
       builder: (context) {
-        String selectedCategory = 'aluminium';
-        String selectedUnit = 'm';
+        String selectedCategory = 'Kusen';
+        bool isCustomCategory = false;
+        final customCategoryController = TextEditingController();
+        String selectedUnit = 'm1';
         final nameController = TextEditingController();
         final priceController = TextEditingController();
+
+        final predefinedCategories = [
+          'Kusen', 'Daun Pintu', 'Daun Jendela', 'Sliding Set', 'Kaca', 'Aksesoris', 'Jasa', '+ Tulis Kategori Kustom'
+        ];
 
         return StatefulBuilder(
           builder: (context, setStateModal) {
@@ -121,7 +148,7 @@ class _CatalogPageState extends State<CatalogPage> with SingleTickerProviderStat
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     DropdownButtonFormField<String>(
-                      value: selectedCategory,
+                      value: predefinedCategories.contains(selectedCategory) ? selectedCategory : '+ Tulis Kategori Kustom',
                       dropdownColor: Colors.white,
                       style: const TextStyle(color: Colors.black87),
                       decoration: const InputDecoration(
@@ -132,20 +159,40 @@ class _CatalogPageState extends State<CatalogPage> with SingleTickerProviderStat
                         fillColor: Colors.white,
                         filled: true,
                       ),
-                      items: const [
-                        DropdownMenuItem(value: 'aluminium', child: Text('Aluminium', style: TextStyle(color: Colors.black87))),
-                        DropdownMenuItem(value: 'glass', child: Text('Kaca', style: TextStyle(color: Colors.black87))),
-                        DropdownMenuItem(value: 'accessories', child: Text('Aksesoris', style: TextStyle(color: Colors.black87))),
-                        DropdownMenuItem(value: 'labor', child: Text('Jasa', style: TextStyle(color: Colors.black87))),
-                      ],
+                      items: predefinedCategories.map((c) => DropdownMenuItem(value: c, child: Text(c, style: const TextStyle(color: Colors.black87)))).toList(),
                       onChanged: (val) {
                         if (val != null) {
                           setStateModal(() {
-                            selectedCategory = val;
+                            if (val == '+ Tulis Kategori Kustom') {
+                              isCustomCategory = true;
+                              selectedCategory = customCategoryController.text;
+                            } else {
+                              isCustomCategory = false;
+                              selectedCategory = val;
+                            }
                           });
                         }
                       },
                     ),
+                    if (isCustomCategory) ...[
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: customCategoryController,
+                        style: const TextStyle(color: Colors.black87),
+                        onChanged: (val) {
+                          selectedCategory = val;
+                        },
+                        decoration: const InputDecoration(
+                          labelText: 'Kategori Kustom',
+                          labelStyle: TextStyle(color: Colors.black54),
+                          hintText: 'Masukkan nama kategori baru',
+                          enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.black26)),
+                          focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: Color(0xFFFF6D00))),
+                          fillColor: Colors.white,
+                          filled: true,
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 12),
                     TextField(
                       controller: nameController,
@@ -191,7 +238,7 @@ class _CatalogPageState extends State<CatalogPage> with SingleTickerProviderStat
                         filled: true,
                       ),
                       items: const [
-                        DropdownMenuItem(value: 'm', child: Text('m (Meter)', style: TextStyle(color: Colors.black87))),
+                        DropdownMenuItem(value: 'm1', child: Text('m1 (Meter Lari)', style: TextStyle(color: Colors.black87))),
                         DropdownMenuItem(value: 'm2', child: Text('m² (Meter Persegi)', style: TextStyle(color: Colors.black87))),
                         DropdownMenuItem(value: 'unit', child: Text('unit (Per Unit)', style: TextStyle(color: Colors.black87))),
                         DropdownMenuItem(value: 'set', child: Text('set (Per Set)', style: TextStyle(color: Colors.black87))),
@@ -218,6 +265,15 @@ class _CatalogPageState extends State<CatalogPage> with SingleTickerProviderStat
                   onPressed: () async {
                     final name = nameController.text.trim();
                     final priceVal = double.tryParse(priceController.text);
+                    if (isCustomCategory) {
+                      selectedCategory = customCategoryController.text.trim();
+                    }
+                    if (selectedCategory.isEmpty || selectedCategory == '+ Tulis Kategori Kustom') {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Kategori tidak boleh kosong.')),
+                      );
+                      return;
+                    }
                     if (name.isEmpty) {
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(content: Text('Nama item tidak boleh kosong.')),
@@ -307,30 +363,24 @@ class _CatalogPageState extends State<CatalogPage> with SingleTickerProviderStat
         backgroundColor: const Color(0xFF1E1E1E),
         title: const Text('Katalog Harga', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
         iconTheme: const IconThemeData(color: Colors.white),
-        bottom: TabBar(
+        bottom: _tabController == null ? null : TabBar(
           controller: _tabController,
           indicatorColor: const Color(0xFFFF6D00),
           labelColor: const Color(0xFFFF6D00),
           unselectedLabelColor: Colors.white54,
           labelStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
-          tabs: const [
-            Tab(text: 'Aluminium'),
-            Tab(text: 'Kaca'),
-            Tab(text: 'Aksesoris'),
-            Tab(text: 'Jasa'),
-          ],
+          isScrollable: true,
+          tabAlignment: TabAlignment.start,
+          padding: EdgeInsets.zero,
+          labelPadding: const EdgeInsets.symmetric(horizontal: 16.0),
+          tabs: _categories.map((c) => Tab(text: c)).toList(),
         ),
       ),
-      body: _isLoading
+      body: _isLoading || _tabController == null
           ? const Center(child: CircularProgressIndicator(color: Color(0xFFFF6D00)))
           : TabBarView(
               controller: _tabController,
-              children: [
-                _buildCategoryList('aluminium', currFmt),
-                _buildCategoryList('glass', currFmt),
-                _buildCategoryList('accessories', currFmt),
-                _buildCategoryList('labor', currFmt),
-              ],
+              children: _categories.map((c) => _buildCategoryList(c, currFmt)).toList(),
             ),
       floatingActionButton: FloatingActionButton(
         onPressed: _showAddMaterialDialog,

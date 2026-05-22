@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:printing/printing.dart';
 import 'package:pdf/pdf.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../data/models/quotation_model.dart';
 import '../../data/repositories/quotation_repository.dart';
 import '../../../design_builder/data/models/design_models.dart';
@@ -83,11 +84,12 @@ class _QuotationDetailPageState extends State<QuotationDetailPage> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF1E1E1E),
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.transparent,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         title: const Text(
           'Sesuaikan Harga Item',
-          style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+          style: TextStyle(color: Colors.black87, fontSize: 16, fontWeight: FontWeight.bold),
         ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -96,33 +98,33 @@ class _QuotationDetailPageState extends State<QuotationDetailPage> {
             if (breakdown != null) ...[
               Text(
                 'Estimasi CAD: ${currencyFormatter.format(defaultPrice)}',
-                style: const TextStyle(color: Colors.white70, fontSize: 13, fontFamily: 'monospace'),
+                style: const TextStyle(color: Colors.black54, fontSize: 13, fontFamily: 'monospace'),
               ),
               const SizedBox(height: 12),
             ],
             TextField(
               controller: controller,
               keyboardType: TextInputType.number,
-              style: const TextStyle(color: Colors.white, fontFamily: 'monospace'),
+              style: const TextStyle(color: Colors.black87, fontFamily: 'monospace'),
               autofocus: true,
               decoration: const InputDecoration(
                 labelText: 'Harga Akhir (Rp)',
-                labelStyle: TextStyle(color: Colors.white54),
-                enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.white24)),
+                labelStyle: TextStyle(color: Colors.black54),
+                enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.black26)),
                 focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: Color(0xFFFF6D00))),
               ),
             ),
             const SizedBox(height: 8),
             Text(
               '*Masukkan harga nego/final untuk item desain ini.',
-              style: TextStyle(color: Colors.white.withAlpha(100), fontSize: 10, fontStyle: FontStyle.italic),
+              style: TextStyle(color: Colors.black54, fontSize: 10, fontStyle: FontStyle.italic),
             ),
           ],
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('BATAL', style: TextStyle(color: Colors.white70)),
+            child: const Text('BATAL', style: TextStyle(color: Colors.black54)),
           ),
           TextButton(
             onPressed: () {
@@ -137,6 +139,92 @@ class _QuotationDetailPageState extends State<QuotationDetailPage> {
         ],
       ),
     );
+  }
+
+  void _showEditDialog() {
+    final nameCtrl = TextEditingController(text: _quotation.customerName);
+    final phoneCtrl = TextEditingController(text: _quotation.customerPhone);
+    final addressCtrl = TextEditingController(text: _quotation.projectAddress);
+    final notesCtrl = TextEditingController(text: _quotation.notes);
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        title: const Text('Edit Detail Penawaran', style: TextStyle(color: Colors.black87, fontSize: 16, fontWeight: FontWeight.bold)),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nameCtrl,
+                decoration: const InputDecoration(labelText: 'Nama Pelanggan'),
+              ),
+              TextField(
+                controller: phoneCtrl,
+                keyboardType: TextInputType.phone,
+                decoration: const InputDecoration(labelText: 'No WhatsApp (contoh: 0812...)'),
+              ),
+              TextField(
+                controller: addressCtrl,
+                decoration: const InputDecoration(labelText: 'Alamat Proyek'),
+              ),
+              TextField(
+                controller: notesCtrl,
+                maxLines: 2,
+                decoration: const InputDecoration(labelText: 'Catatan Khusus'),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('BATAL', style: TextStyle(color: Colors.black54)),
+          ),
+          TextButton(
+            onPressed: () async {
+              final updated = QuotationModel(
+                id: _quotation.id,
+                customerName: nameCtrl.text.trim(),
+                customerPhone: phoneCtrl.text.trim(),
+                projectAddress: addressCtrl.text.trim(),
+                notes: notesCtrl.text.trim(),
+                createdAt: _quotation.createdAt,
+                subtotal: _quotation.subtotal,
+                grandTotal: _quotation.grandTotal,
+              );
+              await _repository.updateQuotation(updated);
+              setState(() {
+                _quotation = updated;
+              });
+              if (mounted) Navigator.pop(context);
+            },
+            child: const Text('SIMPAN', style: TextStyle(color: Color(0xFFFF6D00), fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _shareToWhatsApp() async {
+    final currencyFormatter = NumberFormat.currency(locale: 'id_ID', symbol: 'Rp ', decimalDigits: 0);
+    String phone = _quotation.customerPhone.replaceAll(RegExp(r'\D'), '');
+    if (phone.startsWith('0')) {
+      phone = '62${phone.substring(1)}';
+    }
+    final text = 'Halo ${_quotation.customerName},\n\nBerikut adalah ringkasan penawaran harga dari EstimaTek untuk proyek di ${_quotation.projectAddress}.\n\nTotal Estimasi: ${currencyFormatter.format(_quotation.grandTotal)}\n\n(Silakan lampirkan file PDF penawaran jika diperlukan).';
+    final uri = Uri.parse('https://wa.me/$phone?text=${Uri.encodeComponent(text)}');
+    
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Gagal membuka WhatsApp. Pastikan WhatsApp terinstal.')));
+      }
+    }
   }
 
   void _deleteItem(String id) async {
@@ -219,32 +307,51 @@ class _QuotationDetailPageState extends State<QuotationDetailPage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            const Icon(Icons.phone_rounded,
-                                size: 16, color: Colors.grey),
-                            const SizedBox(width: 8),
-                            Text(_quotation.customerPhone,
-                                style: const TextStyle(fontSize: 14)),
+                            Row(
+                              children: [
+                                const Icon(Icons.phone_rounded, size: 16, color: Colors.grey),
+                                const SizedBox(width: 8),
+                                Text(_quotation.customerPhone, style: const TextStyle(fontSize: 14)),
+                              ],
+                            ),
+                            TextButton.icon(
+                              onPressed: _showEditDialog,
+                              icon: const Icon(Icons.edit, size: 14),
+                              label: const Text('Edit Detail', style: TextStyle(fontSize: 12)),
+                              style: TextButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
+                                minimumSize: const Size(0, 30),
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              ),
+                            ),
                           ],
                         ),
                         const SizedBox(height: 4),
                         Row(
                           children: [
-                            const Icon(Icons.location_on_rounded,
-                                size: 16, color: Colors.grey),
+                            const Icon(Icons.location_on_rounded, size: 16, color: Colors.grey),
                             const SizedBox(width: 8),
-                            Expanded(
-                                child: Text(_quotation.projectAddress,
-                                    style: const TextStyle(fontSize: 14))),
+                            Expanded(child: Text(_quotation.projectAddress, style: const TextStyle(fontSize: 14))),
                           ],
                         ),
+                        if (_quotation.notes.isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Icon(Icons.notes_rounded, size: 16, color: Colors.grey),
+                              const SizedBox(width: 8),
+                              Expanded(child: Text('Catatan: ${_quotation.notes}', style: const TextStyle(fontSize: 13, fontStyle: FontStyle.italic, color: Colors.black54))),
+                            ],
+                          ),
+                        ],
                         const Divider(height: 24),
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            const Text('Grand Total',
-                                style: TextStyle(
-                                    fontSize: 14, color: Colors.grey)),
+                            const Text('Grand Total', style: TextStyle(fontSize: 14, color: Colors.grey)),
                             Text(
                               currencyFormatter.format(_quotation.grandTotal),
                               style: const TextStyle(
@@ -255,6 +362,22 @@ class _QuotationDetailPageState extends State<QuotationDetailPage> {
                               ),
                             ),
                           ],
+                        ),
+                        const SizedBox(height: 16),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton.icon(
+                            onPressed: _quotation.customerPhone.isNotEmpty ? _shareToWhatsApp : null,
+                            icon: const Icon(Icons.share, size: 18),
+                            label: const Text('Bagikan ke WhatsApp', style: TextStyle(fontWeight: FontWeight.bold)),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF25D366),
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              elevation: 0,
+                            ),
+                          ),
                         ),
                       ],
                     ),
@@ -475,15 +598,16 @@ class _QuotationDetailPageState extends State<QuotationDetailPage> {
                     const Text('Material breakdown tidak tersedia.', style: TextStyle(fontSize: 11, color: Colors.grey)),
                   ],
                   const SizedBox(height: 12),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
+                  Wrap(
+                    alignment: WrapAlignment.end,
+                    spacing: 8,
+                    runSpacing: 8,
                     children: [
                       TextButton.icon(
                         onPressed: () => _deleteItem(item.id),
                         icon: const Icon(Icons.delete_outline_rounded, size: 16, color: Colors.red),
                         label: const Text('Hapus', style: TextStyle(color: Colors.red, fontSize: 12)),
                       ),
-                      const SizedBox(width: 8),
                       TextButton.icon(
                         onPressed: () async {
                           final result = await Navigator.push(
@@ -502,7 +626,6 @@ class _QuotationDetailPageState extends State<QuotationDetailPage> {
                         icon: const Icon(Icons.edit_outlined, size: 16),
                         label: const Text('Edit Gambar', style: TextStyle(fontSize: 12)),
                       ),
-                      const SizedBox(width: 8),
                       ElevatedButton.icon(
                         onPressed: () => _showAdjustDialog(item, breakdown, formatter),
                         icon: const Icon(Icons.settings_outlined, size: 16, color: Colors.white),

@@ -101,6 +101,19 @@ final List<AluminumBrand> _localCatalog = [
       ]),
     ],
   ),
+  AluminumBrand(
+    name: 'YKK',
+    series: [
+      SeriesCatalog(id: '3_inch', name: '3 Inch', items: [
+        ProfileItem(category: 'Kusen', profileName: 'Kusen Open 3"', thickness: 7.62, price: 110000),
+        ProfileItem(category: 'Mullion', profileName: 'Tiang Tengah 3"', thickness: 7.62, price: 120000),
+      ]),
+      SeriesCatalog(id: '4_inch', name: '4 Inch', items: [
+        ProfileItem(category: 'Kusen', profileName: 'Kusen Open 4"', thickness: 10.16, price: 150000),
+        ProfileItem(category: 'Mullion', profileName: 'Tiang Tengah 4"', thickness: 10.16, price: 160000),
+      ]),
+    ],
+  ),
 ];
 
 class _DesignBuilderPageState extends State<DesignBuilderPage> with SingleTickerProviderStateMixin {
@@ -681,6 +694,7 @@ class _DesignBuilderPageState extends State<DesignBuilderPage> with SingleTicker
     showModalBottomSheet(
       context: context,
       backgroundColor: const Color(0xFF1A1A1A),
+      isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
@@ -727,10 +741,16 @@ class _DesignBuilderPageState extends State<DesignBuilderPage> with SingleTicker
               );
             }
 
-            return Padding(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
+            return SingleChildScrollView(
+              child: Padding(
+                padding: EdgeInsets.only(
+                  left: 20,
+                  right: 20,
+                  top: 20,
+                  bottom: MediaQuery.of(context).viewInsets.bottom + 20,
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
@@ -840,7 +860,7 @@ class _DesignBuilderPageState extends State<DesignBuilderPage> with SingleTicker
                   const SizedBox(height: 20),
                 ],
               ),
-            );
+            ));
           },
         );
       },

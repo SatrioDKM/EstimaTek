@@ -2,6 +2,7 @@ import 'dart:developer' as developer;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:hive/hive.dart';
+import '../../../../core/config/supabase_config.dart';
 
 class AuthRepository {
   final SupabaseClient _supabaseClient = Supabase.instance.client;
@@ -41,76 +42,107 @@ class AuthRepository {
 
   // Google Sign-In flow
   Future<User?> signInWithGoogle() async {
+    print('[AuthRepository] starting signInWithGoogle...');
     try {
       final GoogleSignIn signIn = GoogleSignIn.instance;
+
+      // Initialize GoogleSignIn with serverClientId (Web Client ID) to retrieve idToken on Android
+      if (SupabaseConfig.googleWebClientId != 'YOUR_GOOGLE_WEB_CLIENT_ID' &&
+          SupabaseConfig.googleWebClientId.isNotEmpty) {
+        print('[AuthRepository] Initializing GoogleSignIn with web client ID: ${SupabaseConfig.googleWebClientId}');
+        await signIn.initialize(
+          serverClientId: SupabaseConfig.googleWebClientId,
+        );
+      } else {
+        print('[AuthRepository] Warning: googleWebClientId is not set or is default!');
+      }
+
+      print('[AuthRepository] Calling signIn.authenticate()...');
       final GoogleSignInAccount? googleUser = await signIn.authenticate();
+      print('[AuthRepository] signIn.authenticate() completed, googleUser: $googleUser');
       if (googleUser == null) {
-        // User cancelled the sign-in
+        print('[AuthRepository] Google Sign-In cancelled by user.');
         return null;
       }
 
-      final googleAuthorization = await googleUser.authorizationClient.authorizationForScopes([]);
-      final idToken = googleUser.authentication.idToken;
-      final accessToken = googleAuthorization?.accessToken;
+      print('[AuthRepository] Fetching googleUser.authentication...');
+      final googleAuth = await googleUser.authentication;
+      final idToken = googleAuth.idToken;
+      print('[AuthRepository] idToken retrieved: ${idToken != null ? "FOUND" : "NULL"}');
 
       if (idToken == null) {
         throw Exception('Google Sign-In failed: No ID token found.');
       }
 
+      print('[AuthRepository] Authenticating with Supabase signInWithIdToken...');
       final AuthResponse response = await _supabaseClient.auth.signInWithIdToken(
         provider: OAuthProvider.google,
         idToken: idToken,
-        accessToken: accessToken,
-      );
+      ).timeout(const Duration(seconds: 15), onTimeout: () {
+        print('[AuthRepository] Supabase signInWithIdToken timed out!');
+        throw Exception('Supabase authentication timed out. Please check your internet connection.');
+      });
 
       final user = response.user;
+      print('[AuthRepository] Supabase sign-in response user: $user');
       if (user != null && user.email != null) {
-        // Sync/Register user in Supabase public.users table
+        print('[AuthRepository] Syncing user account in public.users table...');
         await _registerOrSyncUserOnLogin(user.email!);
+        print('[AuthRepository] User account sync completed.');
       }
 
       return user;
     } catch (e) {
-      developer.log('Error in signInWithGoogle: $e', name: 'AuthRepository');
+      print('[AuthRepository] Error in signInWithGoogle: $e');
       rethrow;
     }
   }
 
   // Sync user in Supabase 'users' table upon initial login
   Future<void> _registerOrSyncUserOnLogin(String email) async {
+    print('[AuthRepository] _registerOrSyncUserOnLogin started for: $email');
     try {
-      // Check if user exists in our public.users table
+      print('[AuthRepository] Querying users table from Supabase for sync...');
       final response = await _supabaseClient
           .from('users')
           .select()
           .eq('email', email)
-          .maybeSingle();
+          .maybeSingle()
+          .timeout(const Duration(seconds: 8), onTimeout: () {
+            print('[AuthRepository] Querying users table timed out during sync!');
+            throw Exception('Timeout querying users database.');
+          });
 
+      print('[AuthRepository] Sync query response: $response');
       final nowString = DateTime.now().toIso8601String();
 
       if (response == null) {
-        // Create user row if it doesn't exist (default active)
+        final bool isOwner = email == 'satriodkm97@gmail.com';
+        print('[AuthRepository] User not found in users table, inserting new row (isOwner=$isOwner)...');
         await _supabaseClient.from('users').insert({
           'email': email,
-          'is_active': true,
+          'is_active': isOwner,
           'last_sync': nowString,
+        }).timeout(const Duration(seconds: 5), onTimeout: () {
+          print('[AuthRepository] Inserting user row timed out!');
         });
         
-        // Cache locally
-        await _cacheLicenseStatus(true, DateTime.now(), email: email);
+        print('[AuthRepository] Caching active status locally...');
+        await _cacheLicenseStatus(isOwner, DateTime.now(), email: email);
       } else {
-        final isActive = response['is_active'] as bool? ?? true;
-        // Update last sync in remote DB
+        final isActive = response['is_active'] as bool? ?? (email == 'satriodkm97@gmail.com');
+        print('[AuthRepository] User found. is_active: $isActive. Updating last_sync...');
         await _supabaseClient.from('users').update({
           'last_sync': nowString,
-        }).eq('email', email);
+        }).eq('email', email).timeout(const Duration(seconds: 5), onTimeout: () {
+          print('[AuthRepository] Updating user last_sync timed out!');
+        });
 
-        // Cache locally
+        print('[AuthRepository] Caching status locally: active=$isActive...');
         await _cacheLicenseStatus(isActive, DateTime.now(), email: email);
       }
     } catch (e) {
-      // If sync fails during initial login (e.g. database error), we log but allow proceed
-      developer.log('Error registering/syncing user in db: $e', name: 'AuthRepository');
+      print('[AuthRepository] Error registering/syncing user in db: $e');
     }
   }
 
@@ -118,45 +150,55 @@ class AuthRepository {
   // Returns true if active, false if blocked or offline grace expired
   Future<bool> checkLicenseStatus() async {
     final email = currentUserEmail;
+    print('[AuthRepository] checkLicenseStatus called for email: $email');
     if (email == null) {
+      print('[AuthRepository] checkLicenseStatus email is null, returning false');
       return false;
     }
 
     try {
-      // Attempt to query Supabase users table (Online check)
+      print('[AuthRepository] Checking license status online via Supabase...');
       final response = await _supabaseClient
           .from('users')
           .select('is_active')
           .eq('email', email)
-          .maybeSingle();
+          .maybeSingle()
+          .timeout(const Duration(seconds: 8), onTimeout: () {
+            print('[AuthRepository] Querying checkLicenseStatus timed out!');
+            throw Exception('Timeout querying license status.');
+          });
 
+      print('[AuthRepository] Online license status query response: $response');
       if (response != null) {
-        final isActive = response['is_active'] as bool? ?? true;
+        final isActive = response['is_active'] as bool? ?? (email == 'satriodkm97@gmail.com');
         final now = DateTime.now();
         
-        // Update last_sync on remote DB
+        print('[AuthRepository] Updating last_sync on remote DB...');
         await _supabaseClient.from('users').update({
           'last_sync': now.toIso8601String(),
-        }).eq('email', email);
+        }).eq('email', email).timeout(const Duration(seconds: 5), onTimeout: () {
+          print('[AuthRepository] Updating last_sync timed out!');
+        });
 
-        // Save status locally in Hive
+        print('[AuthRepository] Caching status locally: active=$isActive...');
         await _cacheLicenseStatus(isActive, now, email: email);
         return isActive;
       } else {
-        // User not found in db table, meaning they were never synced
-        // Let's add them as active for now
+        print('[AuthRepository] User not found in db table during check, inserting defaults...');
         final now = DateTime.now();
+        final bool isOwner = email == 'satriodkm97@gmail.com';
         await _supabaseClient.from('users').insert({
           'email': email,
-          'is_active': true,
+          'is_active': isOwner,
           'last_sync': now.toIso8601String(),
+        }).timeout(const Duration(seconds: 5), onTimeout: () {
+          print('[AuthRepository] Inserting defaults timed out!');
         });
-        await _cacheLicenseStatus(true, now, email: email);
-        return true;
+        await _cacheLicenseStatus(isOwner, now, email: email);
+        return isOwner;
       }
     } catch (e) {
-      developer.log('Offline/Error checking license status from remote, falling back to Hive cache: $e', name: 'AuthRepository');
-      // If we are offline or request fails, fall back to Hive cache check
+      print('[AuthRepository] Offline/Error checking license status, falling back to Hive cache: $e');
       return await _checkLocalLicenseWithGracePeriod();
     }
   }

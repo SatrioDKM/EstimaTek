@@ -62,26 +62,27 @@ class PricingEngine {
     const slidingWindowType = 'Ekonomis';
 
     // Core materials
-    final matKusen = findMaterial('aluminium', '$brand Kusen $kusenSize', 120000);
-    final matJendelaDaun = findMaterial('aluminium', '$brand Jendela $daunJendelaProfil', 450000);
-    final matSlidingWin = findMaterial('aluminium', '$brand Sliding Window $slidingWindowType', 400000);
+    final matKusen = findMaterial('Kusen', '$brand Kusen $kusenSize', 120000);
+    final matJendelaDaun = findMaterial('Daun Jendela', '$brand Jendela $daunJendelaProfil', 250000);
+    final matSlidingWin = findMaterial('Sliding Set', '$brand Sliding Window $slidingWindowType', 345000);
     
-    final matKaca = findMaterial('glass', 'Kaca Polos 5mm', 180000);
-    final matEngselCasement = findMaterial('accessories', 'Engsel Casement', 35000);
-    final matRodaSliding = findMaterial('accessories', 'Roda Sliding', 45000);
-    final matJasa = findMaterial('labor', 'Jasa Pasang', 50000);
+    final matKaca = findMaterial('Kaca', 'Kaca Polos 5mm', 180000);
+    final matEngselCasement = findMaterial('Aksesoris', 'Engsel Casement', 35000);
+    final matRodaSliding = findMaterial('Aksesoris', 'Roda Sliding', 45000);
+    final matJasa = findMaterial('Jasa', 'Jasa Pasang', 50000);
 
     // Accessories
-    final matEngselPintu = findMaterial('accessories', 'Engsel Pintu', 75000);
-    final matKunciSwing = findMaterial('accessories', 'Kunci Pintu Swing', 150000);
-    final matKunciSliding = findMaterial('accessories', 'Kunci Sliding', 60000);
-    final matAksesorisLipat = findMaterial('accessories', 'Aksesoris Lipat', 300000);
+    final matEngselPintu = findMaterial('Aksesoris', 'Engsel Pintu', 75000);
+    final matKunciSwing = findMaterial('Aksesoris', 'Kunci Pintu Swing', 150000);
+    final matKunciSliding = findMaterial('Aksesoris', 'Kunci Sliding', 60000);
+    final matAksesorisLipat = findMaterial('Aksesoris', 'Aksesoris Lipat', 300000);
 
     double totalKusenMeters = 0;
     double totalMullionMeters = 0;
     double totalGlassSqm = 0;
 
     int countJendelaDaun = 0;
+    double totalDaunJendelaMeters = 0;
     int countSlidingWinDaun = 0;
 
     int countEngselCasement = 0;
@@ -127,6 +128,7 @@ class PricingEngine {
           if (ot.type == 'casement') {
             countJendelaDaun += 1;
             countEngselCasement += 1;
+            totalDaunJendelaMeters += (2 * (w / 100)) + (2 * (h / 100));
           } else if (ot.type == 'sliding' && ot.category == 'window') {
             countSlidingWinDaun += 1;
             countRodaSliding += 1;
@@ -146,20 +148,20 @@ class PricingEngine {
             final leafType = ot.leafCount >= 2 ? 'Double' : 'Single';
             final doorTypeKey = 'Pintu $matLabel $leafType';
             final doorMatName = '$brand $doorTypeKey $sizeClass';
-            final doorMat = findMaterial('aluminium', doorMatName, 1200000);
+            final doorMat = findMaterial('Daun Pintu', doorMatName, 2000000);
             doorItems.putIfAbsent(doorMatName, () => _DoorPricingItem(doorMat.name, doorMat.price, 0)).count++;
             countEngselPintu += ot.leafCount >= 2 ? 6 : 3;
             countKunciSwing += 1;
           } else if (ot.type == 'folding' && ot.category == 'door') {
             final leafCount = ot.leafCount.clamp(2, 6);
             final foldMatName = '$brand Pintu Lipat per Daun';
-            final foldMat = findMaterial('aluminium', foldMatName, 1100000);
+            final foldMat = findMaterial('Daun Pintu', foldMatName, 2000000);
             doorItems.putIfAbsent(foldMatName, () => _DoorPricingItem(foldMat.name, foldMat.price, 0)).count += leafCount;
             countAksesorisLipat += 1;
           } else if (ot.type == 'sliding' && ot.category == 'door') {
             final leafCount = ot.leafCount.clamp(2, 6);
             final slideMatName = '$brand Pintu Geser per Daun';
-            final slideMat = findMaterial('aluminium', slideMatName, 900000);
+            final slideMat = findMaterial('Daun Pintu', slideMatName, 2000000);
             doorItems.putIfAbsent(slideMatName, () => _DoorPricingItem(slideMat.name, slideMat.price, 0)).count += leafCount;
             countRodaSliding += leafCount * 2;
             countKunciSliding += 1;
@@ -183,13 +185,13 @@ class PricingEngine {
     }
 
     // 2. Daun Jendela (Casement)
-    if (countJendelaDaun > 0) {
+    if (totalDaunJendelaMeters > 0) {
       breakdownItems.add(PricingItemBreakdown(
         name: '${matJendelaDaun.name} (Daun Casement)',
-        quantity: countJendelaDaun.toDouble(),
-        unit: 'unit',
+        quantity: totalDaunJendelaMeters,
+        unit: 'm1',
         unitPrice: matJendelaDaun.price,
-        subtotal: countJendelaDaun * matJendelaDaun.price,
+        subtotal: totalDaunJendelaMeters * matJendelaDaun.price,
       ));
     }
 

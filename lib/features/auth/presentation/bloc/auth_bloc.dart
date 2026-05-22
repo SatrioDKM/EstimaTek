@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' hide AuthState;
 import '../../data/repositories/auth_repository.dart';
 
 // --- Events ---
@@ -84,23 +84,34 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     SignInWithGoogleRequested event,
     Emitter<AuthState> emit,
   ) async {
+    print('[AuthBloc] _onSignInWithGoogleRequested event received');
     emit(AuthLoading());
     try {
+      print('[AuthBloc] Calling authRepository.signInWithGoogle()...');
       final user = await _authRepository.signInWithGoogle();
+      print('[AuthBloc] authRepository.signInWithGoogle() returned user: $user');
+      
       if (user != null) {
+        print('[AuthBloc] Calling authRepository.checkLicenseStatus()...');
         final isLicenseActive = await _authRepository.checkLicenseStatus();
+        print('[AuthBloc] authRepository.checkLicenseStatus() returned: $isLicenseActive');
+        
         if (isLicenseActive) {
+          print('[AuthBloc] Emitting AuthenticatedActive state');
           emit(AuthenticatedActive(user));
         } else {
+          print('[AuthBloc] Emitting AuthenticatedBlocked state');
           emit(AuthenticatedBlocked(
             email: user.email ?? '',
             reason: 'Akun Anda dinonaktifkan oleh administrator.',
           ));
         }
       } else {
+        print('[AuthBloc] User is null (sign-in cancelled), emitting Unauthenticated state');
         emit(Unauthenticated());
       }
     } catch (e) {
+      print('[AuthBloc] Error caught in _onSignInWithGoogleRequested: $e');
       emit(AuthError('Gagal Sign-In dengan Google: ${e.toString()}'));
       emit(Unauthenticated());
     }

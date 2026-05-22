@@ -17,37 +17,61 @@ class LoginPage extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               const Spacer(),
-              // EstimaTek Logo Placeholder or Icon
+              // EstimaTek Logo
               Center(
                 child: Container(
-                  width: 100,
-                  height: 100,
+                  padding: const EdgeInsets.all(16.0),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFFF6D00).withAlpha(30),
-                    shape: BoxShape.circle,
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(20.0),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withAlpha(40),
+                        blurRadius: 10,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
                   ),
-                  child: const Icon(
-                    Icons.assessment_outlined,
-                    size: 60,
-                    color: Color(0xFFFF6D00),
+                  child: Image.asset(
+                    'assets/images/et_logo.png',
+                    width: 90,
+                    height: 90,
+                    fit: BoxFit.contain,
                   ),
                 ),
               ),
               const SizedBox(height: 24),
               // App Title & Tagline
-              const Text(
-                'EstimaTek V2',
+              RichText(
                 textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 32,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 1.2,
+                text: const TextSpan(
+                  style: TextStyle(
+                    fontSize: 38,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 1.5,
+                    shadows: [
+                      Shadow(
+                        color: Colors.black54,
+                        offset: Offset(0, 4),
+                        blurRadius: 10,
+                      ),
+                    ],
+                  ),
+                  children: [
+                    TextSpan(
+                      text: 'Estima',
+                      style: TextStyle(color: Colors.white),
+                    ),
+                    TextSpan(
+                      text: 'Tek',
+                      style: TextStyle(color: Color(0xFFFF6D00)),
+                    ),
+                  ],
                 ),
               ),
               const SizedBox(height: 8),
               const Text(
-                'Sistem Estimasi Kontraktor Pintar',
+                'Smart Aluminum Estimator',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   color: Colors.white60,
