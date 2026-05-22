@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:estimatek/features/design_builder/data/models/design_models.dart';
+import 'package:EstimaTek/features/design_builder/data/models/design_models.dart';
 
 void main() {
   group('CAD Model and Panel Geometry Tests', () {
@@ -42,6 +42,38 @@ void main() {
       panel.merge();
       expect(panel.isLeaf, isTrue);
       expect(panel.leafCount, 1);
+    });
+
+    test('Should proportionally resize sub-panel child flex', () {
+      final frame = FrameNode(widthCm: 120, heightCm: 150);
+      frame.rootPanel.splitEqually(SplitDirection.vertical, 3);
+      
+      final parent = frame.rootPanel;
+      expect(parent.childFlex, [1/3, 1/3, 1/3]);
+      
+      final double parentSizeCm = 139.238;
+      final double availableCm = parentSizeCm; 
+      
+      final double val = 50.0;
+      final double remSpace = availableCm - val; 
+      
+      final totalFlex = parent.childFlex.fold(0.0, (a, b) => a + b); 
+      final oldFlexC = parent.childFlex[0]; 
+      final sumOfOtherFlexes = totalFlex - oldFlexC; 
+      
+      final List<double> newFlex = List.from(parent.childFlex);
+      for (int i = 0; i < parent.children.length; i++) {
+        if (i == 0) {
+          newFlex[i] = val;
+        } else {
+          newFlex[i] = (parent.childFlex[i] / sumOfOtherFlexes) * remSpace;
+        }
+      }
+      parent.childFlex = newFlex;
+      
+      expect(parent.childFlex[0], 50.0);
+      expect(parent.childFlex[1], closeTo(44.619, 0.001));
+      expect(parent.childFlex[2], closeTo(44.619, 0.001));
     });
   });
 }

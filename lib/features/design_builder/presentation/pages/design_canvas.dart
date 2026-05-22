@@ -45,12 +45,55 @@ class DesignCanvas extends StatelessWidget {
           children: project.frames.map((frame) {
             final rx = frame.x - minX;
             final ry = frame.y - minY;
+
+            bool hideLeft = false;
+            bool hideRight = false;
+            bool hideTop = false;
+            bool hideBottom = false;
+
+            const double borderThreshold = 3.0;
+            for (final other in project.frames) {
+              if (other.id == frame.id) continue;
+              
+              final wA = frame.renderWidth;
+              final hA = frame.renderHeight;
+              final wB = other.renderWidth;
+              final hB = other.renderHeight;
+              
+              // Left border touches other's right
+              if ((frame.x - (other.x + wB)).abs() < borderThreshold) {
+                final overlap = min(frame.y + hA, other.y + hB) - max(frame.y, other.y);
+                if (overlap > 1.0) hideLeft = true;
+              }
+              // Right border touches other's left
+              if (((frame.x + wA) - other.x).abs() < borderThreshold) {
+                final overlap = min(frame.y + hA, other.y + hB) - max(frame.y, other.y);
+                if (overlap > 1.0) hideRight = true;
+              }
+              // Top border touches other's bottom
+              if ((frame.y - (other.y + hB)).abs() < borderThreshold) {
+                final overlap = min(frame.x + wA, other.x + wB) - max(frame.x, other.x);
+                if (overlap > 1.0) hideTop = true;
+              }
+              // Bottom border touches other's top
+              if (((frame.y + hA) - other.y).abs() < borderThreshold) {
+                final overlap = min(frame.x + wA, other.x + wB) - max(frame.x, other.x);
+                if (overlap > 1.0) hideBottom = true;
+              }
+            }
+
             return Positioned(
               left: rx,
               top: ry,
               width: frame.renderWidth,
               height: frame.renderHeight,
-              child: _buildFramePreview(frame),
+              child: _buildFramePreview(
+                frame,
+                hideLeft: hideLeft,
+                hideRight: hideRight,
+                hideTop: hideTop,
+                hideBottom: hideBottom,
+              ),
             );
           }).toList(),
         ),
@@ -58,19 +101,27 @@ class DesignCanvas extends StatelessWidget {
     );
   }
 
-  Widget _buildFramePreview(FrameNode frame) {
+  Widget _buildFramePreview(
+    FrameNode frame, {
+    bool hideLeft = false,
+    bool hideRight = false,
+    bool hideTop = false,
+    bool hideBottom = false,
+  }) {
     final frameColor = const Color(0xFF1A1A1A);
     final borderWidth = 1.0;
 
     return Container(
       decoration: BoxDecoration(
         border: Border(
-          left: BorderSide(color: frameColor, width: borderWidth),
-          right: BorderSide(color: frameColor, width: borderWidth),
-          top: BorderSide(color: frameColor, width: borderWidth),
-          bottom: frame.type == FrameType.pintu
-              ? BorderSide(color: frameColor.withAlpha(80), width: borderWidth)
-              : BorderSide(color: frameColor, width: borderWidth),
+          left: hideLeft ? BorderSide.none : BorderSide(color: frameColor, width: borderWidth),
+          right: hideRight ? BorderSide.none : BorderSide(color: frameColor, width: borderWidth),
+          top: hideTop ? BorderSide.none : BorderSide(color: frameColor, width: borderWidth),
+          bottom: hideBottom
+              ? BorderSide.none
+              : (frame.type == FrameType.pintu
+                  ? BorderSide(color: frameColor.withAlpha(80), width: borderWidth)
+                  : BorderSide(color: frameColor, width: borderWidth)),
         ),
       ),
       child: _buildPanelTree(frame.rootPanel),
@@ -81,7 +132,7 @@ class DesignCanvas extends StatelessWidget {
     if (panel.isLeaf) {
       return Container(
         decoration: BoxDecoration(
-          color: _getPanelColor(panel.openingType),
+          color: _getPanelColor(panel.opening),
           border: Border.all(color: const Color(0xFF1A1A1A), width: 0.5),
         ),
         child: Stack(
@@ -89,7 +140,7 @@ class DesignCanvas extends StatelessWidget {
             Positioned.fill(
               child: Padding(
                 padding: const EdgeInsets.all(0.5),
-                child: CustomPaint(painter: _SimpleOpeningPainter(panel.openingType)),
+                child: CustomPaint(painter: _SimpleOpeningPainter(panel.opening)),
               ),
             ),
           ],
@@ -130,28 +181,20 @@ class DesignCanvas extends StatelessWidget {
     );
   }
 
-  static Color _getPanelColor(OpeningType type) {
-    switch (type) {
-      case OpeningType.fixed: return const Color(0xFFE8F4FD);
-      case OpeningType.casement: return const Color(0xFFFFF8E1);
-      case OpeningType.louvre: return const Color(0xFFEFEBE9);
-      case OpeningType.folding3:
-      case OpeningType.folding4:
-        return const Color(0xFFF3E5F5);
-      case OpeningType.slidingLeftRight:
-      case OpeningType.slidingUpDown:
-      case OpeningType.sliding2Daun:
-      case OpeningType.sliding3Daun:
-      case OpeningType.sliding4Daun:
-        return const Color(0xFFE8F5E9);
-      default:
-        return const Color(0xFFFCE4EC); // Swing doors
+  static Color _getPanelColor(OpeningTypeNode type) {
+    switch (type.type) {
+      case 'fixed': return const Color(0xFFE8F4FD);
+      case 'casement': return const Color(0xFFFFF8E1);
+      case 'louvre': return const Color(0xFFEFEBE9);
+      case 'folding': return const Color(0xFFF3E5F5);
+      case 'sliding': return const Color(0xFFE8F5E9);
+      default: return const Color(0xFFFCE4EC); // Swing doors
     }
   }
 }
 
 class _SimpleOpeningPainter extends CustomPainter {
-  final OpeningType type;
+  final OpeningTypeNode type;
   _SimpleOpeningPainter(this.type);
 
   @override
@@ -161,47 +204,36 @@ class _SimpleOpeningPainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeWidth = 0.5;
 
-    switch (type) {
-      case OpeningType.fixed:
+    switch (type.type) {
+      case 'fixed':
         canvas.drawLine(Offset.zero, Offset(size.width, size.height), paint);
         canvas.drawLine(Offset(size.width, 0), Offset(0, size.height), paint);
         break;
-      case OpeningType.casement:
+      case 'casement':
         final path = Path()..moveTo(0, 0)..lineTo(size.width, size.height / 2)..lineTo(0, size.height);
         canvas.drawPath(path, paint);
         break;
-      case OpeningType.slidingLeftRight:
-      case OpeningType.sliding2Daun:
-      case OpeningType.sliding3Daun:
-      case OpeningType.sliding4Daun:
+      case 'sliding':
         final cy = size.height / 2;
         canvas.drawLine(Offset(size.width * 0.2, cy), Offset(size.width * 0.8, cy), paint);
         break;
-      case OpeningType.slidingUpDown:
-        final cx = size.width / 2;
-        canvas.drawLine(Offset(cx, size.height * 0.2), Offset(cx, size.height * 0.8), paint);
+      case 'swing':
+        if (type.direction == 'double') {
+            final r = (size.width / 2) * 0.8;
+            canvas.drawArc(Rect.fromCircle(center: Offset(0, size.height), radius: r), -3.14159 / 2, 3.14159 / 2, false, paint);
+            canvas.drawArc(Rect.fromCircle(center: Offset(size.width, size.height), radius: r), 3.14159, -3.14159 / 2, false, paint);
+        } else {
+            final r = min(size.width, size.height) * 0.8;
+            canvas.drawArc(Rect.fromCircle(center: Offset(0, size.height), radius: r), -3.14159 / 2, 3.14159 / 2, false, paint);
+        }
         break;
-      case OpeningType.glassSingle:
-      case OpeningType.acpSingle:
-      case OpeningType.panelSingle:
-        final r = min(size.width, size.height) * 0.8;
-        canvas.drawArc(Rect.fromCircle(center: Offset(0, size.height), radius: r), -pi / 2, pi / 2, false, paint);
-        break;
-      case OpeningType.glassDouble:
-      case OpeningType.acpDouble:
-      case OpeningType.panelDouble:
-        final r = (size.width / 2) * 0.8;
-        canvas.drawArc(Rect.fromCircle(center: Offset(0, size.height), radius: r), -pi / 2, pi / 2, false, paint);
-        canvas.drawArc(Rect.fromCircle(center: Offset(size.width, size.height), radius: r), pi, -pi / 2, false, paint);
-        break;
-      case OpeningType.folding3:
-      case OpeningType.folding4:
-        for (int i = 1; i < 3; i++) {
-          final x = size.width * i / 3;
+      case 'folding':
+        for (int i = 1; i < type.leafCount; i++) {
+          final x = size.width * i / type.leafCount;
           canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
         }
         break;
-      case OpeningType.louvre:
+      case 'louvre':
         for (int i = 1; i < 6; i++) {
           final y = size.height * i / 6;
           canvas.drawLine(Offset(0, y), Offset(size.width, y), paint);

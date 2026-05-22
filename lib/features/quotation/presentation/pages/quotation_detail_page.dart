@@ -400,7 +400,7 @@ class _QuotationDetailPageState extends State<QuotationDetailPage> {
                           if (project.frames.isNotEmpty) ...[
                             const SizedBox(height: 2),
                             Text(
-                              project.frames.first.rootPanel.allLeaves.map((l) => l.openingType.shortLabel).join(', '),
+                              project.frames.first.rootPanel.allLeaves.map((l) => l.opening.shortLabel).join(', '),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(color: Colors.grey[500], fontSize: 10, fontFamily: 'monospace'),

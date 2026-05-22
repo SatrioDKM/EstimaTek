@@ -56,10 +56,10 @@ class PricingEngine {
       }
     }
 
-    final brand = design.brand.isNotEmpty ? design.brand : 'Inkalum';
-    final kusenSize = design.kusenSize.isNotEmpty ? design.kusenSize : '3 inch';
-    final daunJendelaProfil = design.daunJendelaProfil.isNotEmpty ? design.daunJendelaProfil : '2 Profil';
-    final slidingWindowType = design.slidingWindowType.isNotEmpty ? design.slidingWindowType : 'Ekonomis';
+    final brand = design.activeBrand.isNotEmpty ? design.activeBrand : 'Inkalum';
+    final kusenSize = design.activeSeriesId == '4_inch' ? '4 inch' : '3 inch';
+    const daunJendelaProfil = '2 Profil';
+    const slidingWindowType = 'Ekonomis';
 
     // Core materials
     final matKusen = findMaterial('aluminium', '$brand Kusen $kusenSize', 120000);
@@ -113,65 +113,54 @@ class PricingEngine {
         },
         onLeafAnalyzed: (leaf, w, h) {
           final areaSqm = (w / 100) * (h / 100);
-          final ot = leaf.openingType;
+          final ot = leaf.opening; // OpeningTypeNode
 
           // Glass area for windows
-          final isWindowGlass = ot == OpeningType.fixed ||
-                                ot == OpeningType.casement ||
-                                ot == OpeningType.slidingLeftRight ||
-                                ot == OpeningType.slidingUpDown;
+          final isWindowGlass = ot.type == 'fixed' ||
+                                ot.type == 'casement' ||
+                                (ot.type == 'sliding' && ot.category == 'window');
           if (isWindowGlass) {
             totalGlassSqm += areaSqm;
           }
 
-          // Count leaves
-          if (ot == OpeningType.casement) {
+          // Count window leaves
+          if (ot.type == 'casement') {
             countJendelaDaun += 1;
-            countEngselCasement += 1; // 1 pair
-          } else if (ot == OpeningType.slidingLeftRight || ot == OpeningType.slidingUpDown) {
+            countEngselCasement += 1;
+          } else if (ot.type == 'sliding' && ot.category == 'window') {
             countSlidingWinDaun += 1;
             countRodaSliding += 1;
             countKunciSliding += 1;
           }
 
           // Doors Classification (Standar vs Besar)
-          // Standar: width <= 100cm AND height <= 210cm
           final isStd = w <= 100.0 && h <= 210.0;
           final sizeClass = isStd ? 'Standar' : 'Besar';
 
-          String? doorTypeKey;
-          switch (ot) {
-            case OpeningType.glassSingle: doorTypeKey = 'Pintu Kaca Single'; break;
-            case OpeningType.glassDouble: doorTypeKey = 'Pintu Kaca Double'; break;
-            case OpeningType.acpSingle: doorTypeKey = 'Pintu ACP Single'; break;
-            case OpeningType.acpDouble: doorTypeKey = 'Pintu ACP Double'; break;
-            case OpeningType.panelSingle: doorTypeKey = 'Pintu Panel Single'; break;
-            case OpeningType.panelDouble: doorTypeKey = 'Pintu Panel Double'; break;
-            default: break;
-          }
-
-          if (doorTypeKey != null) {
+          if (ot.type == 'swing' && ot.category == 'door') {
+            final matLabel = ot.material == 'acp'
+                ? 'ACP'
+                : ot.material == 'panel'
+                    ? 'Panel'
+                    : 'Kaca';
+            final leafType = ot.leafCount >= 2 ? 'Double' : 'Single';
+            final doorTypeKey = 'Pintu $matLabel $leafType';
             final doorMatName = '$brand $doorTypeKey $sizeClass';
             final doorMat = findMaterial('aluminium', doorMatName, 1200000);
             doorItems.putIfAbsent(doorMatName, () => _DoorPricingItem(doorMat.name, doorMat.price, 0)).count++;
-
-            // Count door accessories
-            final isDouble = doorTypeKey.contains('Double');
-            countEngselPintu += isDouble ? 6 : 3;
+            countEngselPintu += ot.leafCount >= 2 ? 6 : 3;
             countKunciSwing += 1;
-          } else if (ot == OpeningType.folding3 || ot == OpeningType.folding4) {
-            final leafCount = ot == OpeningType.folding3 ? 3 : 4;
+          } else if (ot.type == 'folding' && ot.category == 'door') {
+            final leafCount = ot.leafCount.clamp(2, 6);
             final foldMatName = '$brand Pintu Lipat per Daun';
             final foldMat = findMaterial('aluminium', foldMatName, 1100000);
             doorItems.putIfAbsent(foldMatName, () => _DoorPricingItem(foldMat.name, foldMat.price, 0)).count += leafCount;
-
             countAksesorisLipat += 1;
-          } else if (ot == OpeningType.sliding2Daun || ot == OpeningType.sliding3Daun || ot == OpeningType.sliding4Daun) {
-            final leafCount = ot == OpeningType.sliding2Daun ? 2 : (ot == OpeningType.sliding3Daun ? 3 : 4);
+          } else if (ot.type == 'sliding' && ot.category == 'door') {
+            final leafCount = ot.leafCount.clamp(2, 6);
             final slideMatName = '$brand Pintu Geser per Daun';
             final slideMat = findMaterial('aluminium', slideMatName, 900000);
             doorItems.putIfAbsent(slideMatName, () => _DoorPricingItem(slideMat.name, slideMat.price, 0)).count += leafCount;
-
             countRodaSliding += leafCount * 2;
             countKunciSliding += 1;
           }

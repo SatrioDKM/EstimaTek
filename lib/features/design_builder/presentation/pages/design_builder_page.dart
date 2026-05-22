@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'dart:math';
 // ignore: depend_on_referenced_packages
 import 'package:vector_math/vector_math_64.dart' show Vector3;
 import 'package:flutter/services.dart';
@@ -29,8 +30,78 @@ class HitResult {
   final String? handleId;
   final bool isWidthLabel;
   final bool isHeightLabel;
-  HitResult(this.object, {this.handleId, this.isWidthLabel = false, this.isHeightLabel = false});
+  final PanelNode? subPanel;
+  final bool? isSubPanelWidth; // true for width, false for height
+
+  HitResult(
+    this.object, {
+    this.handleId,
+    this.isWidthLabel = false,
+    this.isHeightLabel = false,
+    this.subPanel,
+    this.isSubPanelWidth,
+  });
 }
+
+class SnapConnection {
+  final String frameId1; // Left or Top frame
+  final String frameId2; // Right or Bottom frame
+  final Axis axis;       // Axis.horizontal (left-right) or Axis.vertical (top-bottom)
+
+  SnapConnection({
+    required this.frameId1,
+    required this.frameId2,
+    required this.axis,
+  });
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is SnapConnection &&
+          runtimeType == other.runtimeType &&
+          frameId1 == other.frameId1 &&
+          frameId2 == other.frameId2 &&
+          axis == other.axis;
+
+  @override
+  int get hashCode => frameId1.hashCode ^ frameId2.hashCode ^ axis.hashCode;
+}
+
+
+
+// ─── HARDCODED LOCAL CATALOG ───
+final List<AluminumBrand> _localCatalog = [
+  AluminumBrand(
+    name: 'Inkalum',
+    series: [
+      SeriesCatalog(id: '3_inch', name: '3 Inch', items: [
+        ProfileItem(category: 'Kusen', profileName: 'Kusen Open 3"', thickness: 7.62, price: 50000),
+        ProfileItem(category: 'Kusen', profileName: 'Kusen M 3"', thickness: 7.62, price: 55000),
+        ProfileItem(category: 'Daun Jendela', profileName: 'Casement 3"', thickness: 3.5, price: 40000),
+        ProfileItem(category: 'Mullion', profileName: 'Tiang Tengah 3"', thickness: 7.62, price: 60000),
+      ]),
+      SeriesCatalog(id: '4_inch', name: '4 Inch', items: [
+        ProfileItem(category: 'Kusen', profileName: 'Kusen Open 4"', thickness: 10.16, price: 65000),
+        ProfileItem(category: 'Kusen', profileName: 'Kusen M 4"', thickness: 10.16, price: 70000),
+        ProfileItem(category: 'Daun Pintu', profileName: 'Tiang Pintu', thickness: 8.0, price: 85000),
+        ProfileItem(category: 'Mullion', profileName: 'Tiang Tengah 4"', thickness: 10.16, price: 75000),
+      ]),
+    ],
+  ),
+  AluminumBrand(
+    name: 'Alexindo',
+    series: [
+      SeriesCatalog(id: '3_inch', name: '3 Inch', items: [
+        ProfileItem(category: 'Kusen', profileName: 'Kusen Open 3"', thickness: 7.62, price: 70000),
+        ProfileItem(category: 'Mullion', profileName: 'Tiang Tengah 3"', thickness: 7.62, price: 80000),
+      ]),
+      SeriesCatalog(id: '4_inch', name: '4 Inch', items: [
+        ProfileItem(category: 'Kusen', profileName: 'Kusen Open 4"', thickness: 10.16, price: 90000),
+        ProfileItem(category: 'Mullion', profileName: 'Tiang Tengah 4"', thickness: 10.16, price: 100000),
+      ]),
+    ],
+  ),
+];
 
 class _DesignBuilderPageState extends State<DesignBuilderPage> with SingleTickerProviderStateMixin {
   final QuotationRepository _repository = QuotationRepository();
@@ -61,6 +132,7 @@ class _DesignBuilderPageState extends State<DesignBuilderPage> with SingleTicker
   // Snapping guidelines
   final List<double> _vSnapLines = [];
   final List<double> _hSnapLines = [];
+  List<SnapConnection> _activeConnections = [];
 
   // Custom interaction tracking
   _CanvasInteraction _interactionType = _CanvasInteraction.none;
@@ -100,6 +172,12 @@ class _DesignBuilderPageState extends State<DesignBuilderPage> with SingleTicker
 
     _updateEstimatedPrice();
     _setSubToolForMainTool(ToolMode.select);
+
+    _transformCtrl.addListener(() {
+      if (mounted) {
+        setState(() {});
+      }
+    });
   }
 
   void _setSubToolForMainTool(ToolMode tool) {
@@ -143,6 +221,62 @@ class _DesignBuilderPageState extends State<DesignBuilderPage> with SingleTicker
     return Offset(transformed.x, transformed.y);
   }
 
+  double _getCurrentScale() {
+    return _transformCtrl.value.getMaxScaleOnAxis();
+  }
+
+  void _updateScale(double newScale) {
+    final RenderBox? viewportBox = _canvasKey.currentContext?.findRenderObject() as RenderBox?;
+    if (viewportBox == null) return;
+
+    final cx = viewportBox.size.width / 2;
+    final cy = viewportBox.size.height / 2;
+
+    final Matrix4 oldTransform = _transformCtrl.value;
+    final double oldScale = oldTransform.getMaxScaleOnAxis();
+
+    // Get current translations
+    final double txOld = oldTransform.storage[12];
+    final double tyOld = oldTransform.storage[13];
+
+    // Compute canvas coordinates corresponding to viewport center
+    final double px = (cx - txOld) / oldScale;
+    final double py = (cy - tyOld) / oldScale;
+
+    final clampedScale = newScale.clamp(0.2, 4.0);
+
+    // Compute new translations
+    final double txNew = cx - clampedScale * px;
+    final double tyNew = cy - clampedScale * py;
+
+    // Apply new matrix
+    setState(() {
+      _transformCtrl.value = Matrix4.identity()
+        ..translate(txNew, tyNew)
+        ..scale(clampedScale);
+    });
+  }
+
+  Rect _getInnerFrameRect(FrameNode frame) {
+    final double frameThickness = _project.getActiveKusenThickness(_localCatalog);
+    final double fThickness = frameThickness * FrameNode.pxPerCm * 0.5; // Visual thickness is halved
+    final int n = 1;
+    
+    final double leftInset = (2 * n - 1) * fThickness;
+    final double rightInset = (2 * n - 1) * fThickness;
+    final double topInset = (2 * n - 1) * fThickness;
+    final double bottomInset = frame.type == FrameType.pintu
+        ? n * fThickness
+        : (2 * n - 1) * fThickness;
+        
+    return Rect.fromLTRB(
+      frame.x + leftInset,
+      frame.y + topInset,
+      frame.x + frame.renderWidth - rightInset,
+      frame.y + frame.renderHeight - bottomInset,
+    );
+  }
+
   // ─── INTERACTIVE OBJECT BUILDER ───
   List<DesignObject> _buildInteractiveObjects() {
     final List<DesignObject> list = [];
@@ -159,7 +293,8 @@ class _DesignBuilderPageState extends State<DesignBuilderPage> with SingleTicker
         label: frame.label,
       );
       
-      _addPanelObjects(frame.rootPanel, frameRect, frameObj.children);
+      final innerRect = _getInnerFrameRect(frame);
+      _addPanelObjects(frame.rootPanel, innerRect, frameObj.children);
       list.add(frameObj);
     }
     
@@ -167,39 +302,34 @@ class _DesignBuilderPageState extends State<DesignBuilderPage> with SingleTicker
   }
 
   void _addPanelObjects(PanelNode panel, Rect rect, List<DesignObject> targetList) {
+    final double mullionThickness = _project.getActiveMullionThickness(_localCatalog);
+    final double visualMullionThickness = mullionThickness * 0.5; // Halved visually
+    final double mThicknessPx = visualMullionThickness * FrameNode.pxPerCm;
+
     if (panel.isLeaf) {
       final panelObj = DesignObject(
         id: panel.id,
         bounds: rect,
         position: rect.topLeft,
         type: ObjectType.panel,
-        openingType: panel.openingType,
-        swingDirection: panel.swingDirection,
+        opening: panel.opening,
         label: panel.label,
       );
       
       late final ObjectType opType;
-      switch (panel.openingType) {
-        case OpeningType.fixed: opType = ObjectType.fixedGlass; break;
-        case OpeningType.casement: opType = ObjectType.casement; break;
-        case OpeningType.louvre: opType = ObjectType.louvre; break;
-        case OpeningType.glassSingle:
-        case OpeningType.glassDouble:
-        case OpeningType.acpSingle:
-        case OpeningType.acpDouble:
-        case OpeningType.panelSingle:
-        case OpeningType.panelDouble:
-        case OpeningType.folding3:
-        case OpeningType.folding4:
+      switch (panel.opening.type) {
+        case 'fixed': opType = ObjectType.fixedGlass; break;
+        case 'casement': opType = ObjectType.casement; break;
+        case 'louvre': opType = ObjectType.louvre; break;
+        case 'swing':
+        case 'folding':
           opType = ObjectType.swingDoor;
           break;
-        case OpeningType.slidingLeftRight:
-        case OpeningType.slidingUpDown:
-        case OpeningType.sliding2Daun:
-        case OpeningType.sliding3Daun:
-        case OpeningType.sliding4Daun:
+        case 'sliding':
           opType = ObjectType.sliding;
           break;
+        default:
+          opType = ObjectType.fixedGlass;
       }
       
       final insetRect = rect.deflate(8.0);
@@ -208,8 +338,7 @@ class _DesignBuilderPageState extends State<DesignBuilderPage> with SingleTicker
         bounds: insetRect,
         position: insetRect.topLeft,
         type: opType,
-        openingType: panel.openingType,
-        swingDirection: panel.swingDirection,
+        opening: panel.opening,
       ));
       
       targetList.add(panelObj);
@@ -218,13 +347,17 @@ class _DesignBuilderPageState extends State<DesignBuilderPage> with SingleTicker
     
     final isH = panel.splitDirection == SplitDirection.horizontal;
     final totalSize = isH ? rect.width : rect.height;
+    
+    double totalMullionPx = panel.mullions.length * mThicknessPx;
+    double availableSize = totalSize - totalMullionPx;
+    
     final totalFlex = panel.childFlex.fold(0.0, (a, b) => a + b);
-    if (totalFlex <= 0) return;
+    if (totalFlex <= 0 || availableSize <= 0) return;
     
     double offset = 0;
     for (int i = 0; i < panel.children.length; i++) {
       final flex = panel.childFlex.length > i ? panel.childFlex[i] : 1.0;
-      final size = totalSize * (flex / totalFlex);
+      final size = availableSize * (flex / totalFlex);
       
       Rect childRect;
       if (isH) {
@@ -235,23 +368,23 @@ class _DesignBuilderPageState extends State<DesignBuilderPage> with SingleTicker
       
       _addPanelObjects(panel.children[i], childRect, targetList);
       
+      offset += size;
+      
       if (i < panel.children.length - 1) {
-        final divPos = offset + size;
-        const hitThickness = 16.0;
         Rect mullionRect;
         if (isH) {
           mullionRect = Rect.fromLTWH(
-            rect.left + divPos - (hitThickness / 2),
+            rect.left + offset,
             rect.top,
-            hitThickness,
+            mThicknessPx,
             rect.height,
           );
         } else {
           mullionRect = Rect.fromLTWH(
             rect.left,
-            rect.top + divPos - (hitThickness / 2),
+            rect.top + offset,
             rect.width,
-            hitThickness,
+            mThicknessPx,
           );
         }
         
@@ -265,8 +398,9 @@ class _DesignBuilderPageState extends State<DesignBuilderPage> with SingleTicker
           splitDirection: panel.splitDirection,
           label: panel.id,
         ));
+        
+        offset += mThicknessPx;
       }
-      offset += size;
     }
   }
 
@@ -286,7 +420,15 @@ class _DesignBuilderPageState extends State<DesignBuilderPage> with SingleTicker
           return HitResult(frameObj, handleId: handleId);
         }
 
-        final dragHandleRect = Rect.fromLTWH(frame.x, frame.y - 24, frame.renderWidth, 24);
+        final currentScale = _getCurrentScale();
+        final labelScale = (1.0 / currentScale).clamp(1.0, 5.0);
+
+        final dragHandleRect = Rect.fromLTWH(
+          frame.x,
+          frame.y - 37.0 * labelScale,
+          frame.renderWidth,
+          48.0 * labelScale,
+        );
         if (dragHandleRect.contains(canvasPoint)) {
           final frameObj = DesignObject(
             id: frame.id,
@@ -297,38 +439,144 @@ class _DesignBuilderPageState extends State<DesignBuilderPage> with SingleTicker
           return HitResult(frameObj, handleId: 'drag_frame');
         }
 
-        // Width label click bounds
-        final wLabelRect = Rect.fromLTWH(
-          frame.x + (frame.renderWidth - 80) / 2,
-          frame.y - 46,
-          80,
-          26,
-        );
-        if (wLabelRect.contains(canvasPoint)) {
-          final frameObj = DesignObject(
-            id: frame.id,
-            bounds: Rect.fromLTWH(frame.x, frame.y, frame.renderWidth, frame.renderHeight),
-            position: Offset(frame.x, frame.y),
-            type: ObjectType.frame,
+        final hasVertSplits = frame.rootPanel.hasVerticalSplit();
+        final hasHorizSplits = frame.rootPanel.hasHorizontalSplit();
+        final isSplit = !frame.rootPanel.isLeaf;
+
+        if (!isSplit) {
+          // Width label click bounds
+          final double wLabelW = max(80.0 * labelScale, 48.0);
+          final double wLabelH = max(48.0 * labelScale, 48.0);
+          final wLabelRect = Rect.fromLTWH(
+            frame.x + (frame.renderWidth - wLabelW) / 2,
+            frame.y - 54.0 * labelScale,
+            wLabelW,
+            wLabelH,
           );
-          return HitResult(frameObj, isWidthLabel: true);
+          if (wLabelRect.contains(canvasPoint)) {
+            final frameObj = DesignObject(
+              id: frame.id,
+              bounds: Rect.fromLTWH(frame.x, frame.y, frame.renderWidth, frame.renderHeight),
+              position: Offset(frame.x, frame.y),
+              type: ObjectType.frame,
+            );
+            return HitResult(frameObj, isWidthLabel: true);
+          }
         }
 
-        // Height label click bounds
-        final hLabelRect = Rect.fromLTWH(
-          frame.x - 46,
-          frame.y + (frame.renderHeight - 26) / 2,
-          46,
-          26,
-        );
-        if (hLabelRect.contains(canvasPoint)) {
-          final frameObj = DesignObject(
-            id: frame.id,
-            bounds: Rect.fromLTWH(frame.x, frame.y, frame.renderWidth, frame.renderHeight),
-            position: Offset(frame.x, frame.y),
-            type: ObjectType.frame,
+        if (!isSplit) {
+          // Height label click bounds
+          final double hLabelW = max(48.0 * labelScale, 48.0);
+          final double hLabelH = max(80.0 * labelScale, 48.0);
+          final hLabelRect = Rect.fromLTWH(
+            frame.x - 48.0 * labelScale,
+            frame.y + (frame.renderHeight - hLabelH) / 2,
+            hLabelW,
+            hLabelH,
           );
-          return HitResult(frameObj, isHeightLabel: true);
+          if (hLabelRect.contains(canvasPoint)) {
+            final frameObj = DesignObject(
+              id: frame.id,
+              bounds: Rect.fromLTWH(frame.x, frame.y, frame.renderWidth, frame.renderHeight),
+              position: Offset(frame.x, frame.y),
+              type: ObjectType.frame,
+            );
+            return HitResult(frameObj, isHeightLabel: true);
+          }
+        }
+
+        // Sub-panel dimension labels hit testing
+        final layouts = frame.getPanelLayouts(
+          frameThickness: _project.getActiveKusenThickness(_localCatalog),
+          mullionThickness: _project.getActiveMullionThickness(_localCatalog),
+        );
+        final N = 1;
+        final double frameThickness = _project.getActiveKusenThickness(_localCatalog);
+        final fThickness = frameThickness * FrameNode.pxPerCm * 0.5;
+        final double leftInset = (2 * N - 1) * fThickness;
+        final double rightInset = (2 * N - 1) * fThickness;
+        final double topInset = (frame.type == FrameType.lengkung) ? leftInset : (2 * N - 1) * fThickness;
+        final double bottomInset = (frame.type == FrameType.pintu) ? N * fThickness : (2 * N - 1) * fThickness;
+        final innerRect = Rect.fromLTRB(leftInset, topInset, frame.renderWidth - rightInset, frame.renderHeight - bottomInset);
+
+        final double leftInsetCm = (2 * N - 1) * frameThickness * 0.5;
+        final double rightInsetCm = (2 * N - 1) * frameThickness * 0.5;
+        final double topInsetCm = (frame.type == FrameType.lengkung) ? leftInsetCm : (2 * N - 1) * frameThickness * 0.5;
+        final double bottomInsetCm = (frame.type == FrameType.pintu) ? N * frameThickness * 0.5 : (2 * N - 1) * frameThickness * 0.5;
+        final innerWidthCm = frame.widthCm - leftInsetCm - rightInsetCm;
+        final innerHeightCm = frame.heightCm - topInsetCm - bottomInsetCm;
+
+        for (final layout in layouts) {
+          if (!layout.panel.isLeaf) continue;
+          if (layout.panel.opening.type == 'spacer') continue;
+
+          // 1. Vertical split height labels (rendered on the right side of the frame or along internal mullions)
+          final isRightmost = (layout.rect.right - innerRect.right).abs() < 2.0;
+          final showHeightLabel = (hasHorizSplits && layout.heightCm < innerHeightCm - 0.1) ||
+                                  (isSplit && !hasHorizSplits && isRightmost);
+          if (showHeightLabel) {
+            final double xMin, xMax;
+            if (isRightmost) {
+              xMin = frame.x + frame.renderWidth;
+              xMax = frame.x + frame.renderWidth + 48.0 * labelScale;
+            } else {
+              xMin = frame.x + layout.rect.right - 24.0 * labelScale;
+              xMax = frame.x + layout.rect.right + 24.0 * labelScale;
+            }
+            final centerY = frame.y + layout.rect.top + layout.rect.height / 2;
+            final halfHeight = max(layout.rect.height, 48.0 * labelScale) / 2;
+            final yMin = centerY - halfHeight;
+            final yMax = centerY + halfHeight;
+
+            if (canvasPoint.dx >= xMin && canvasPoint.dx <= xMax &&
+                canvasPoint.dy >= yMin && canvasPoint.dy <= yMax) {
+              final frameObj = DesignObject(
+                id: frame.id,
+                bounds: Rect.fromLTWH(frame.x, frame.y, frame.renderWidth, frame.renderHeight),
+                position: Offset(frame.x, frame.y),
+                type: ObjectType.frame,
+              );
+              return HitResult(
+                frameObj,
+                subPanel: layout.panel,
+                isSubPanelWidth: false,
+              );
+            }
+          }
+
+          // 2. Horizontal split width labels (rendered at the bottom of the frame or along internal transoms)
+          final isBottommost = (layout.rect.bottom - innerRect.bottom).abs() < 2.0;
+          final showWidthLabel = (hasVertSplits && layout.widthCm < innerWidthCm - 0.1) ||
+                                 (isSplit && !hasVertSplits && isBottommost);
+          if (showWidthLabel) {
+            final double yMin, yMax;
+            if (isBottommost) {
+              yMin = frame.y + frame.renderHeight + 6.0 * labelScale;
+              yMax = frame.y + frame.renderHeight + 54.0 * labelScale;
+            } else {
+              yMin = frame.y + layout.rect.bottom - 24.0 * labelScale;
+              yMax = frame.y + layout.rect.bottom + 24.0 * labelScale;
+            }
+            final centerX = frame.x + layout.rect.left + layout.rect.width / 2;
+            final halfWidth = max(layout.rect.width, 48.0 * labelScale) / 2;
+            final xMin = centerX - halfWidth;
+            final xMax = centerX + halfWidth;
+
+            if (canvasPoint.dx >= xMin && canvasPoint.dx <= xMax &&
+                canvasPoint.dy >= yMin && canvasPoint.dy <= yMax) {
+              final frameObj = DesignObject(
+                id: frame.id,
+                bounds: Rect.fromLTWH(frame.x, frame.y, frame.renderWidth, frame.renderHeight),
+                position: Offset(frame.x, frame.y),
+                type: ObjectType.frame,
+              );
+              return HitResult(
+                frameObj,
+                subPanel: layout.panel,
+                isSubPanelWidth: true,
+              );
+            }
+          }
         }
       }
     }
@@ -361,14 +609,15 @@ class _DesignBuilderPageState extends State<DesignBuilderPage> with SingleTicker
   }
 
   String? _hitTestResizeHandles(FrameNode frame, Offset canvasPoint) {
-    const handleSize = 24.0;
-    final hs = handleSize / 2;
+    final labelScale = (1.0 / _getCurrentScale()).clamp(1.0, 5.0);
+    final hitSize = 48.0 * labelScale;
+    final hs = hitSize / 2;
     final fw = frame.renderWidth;
     final fh = frame.renderHeight;
     final fx = frame.x;
     final fy = frame.y;
 
-    Rect rect(double left, double top) => Rect.fromLTWH(left - hs, top - hs, handleSize, handleSize);
+    Rect rect(double left, double top) => Rect.fromLTWH(left - hs, top - hs, hitSize, hitSize);
 
     final handles = {
       'tl': rect(fx, fy),
@@ -506,30 +755,88 @@ class _DesignBuilderPageState extends State<DesignBuilderPage> with SingleTicker
                     ],
                   ),
                   const Divider(color: Colors.white12, height: 20),
-                  dropdown('Merk / Brand Aluminium', _project.brand, ['Inkalum', 'Alexindo', 'YKK'], (val) {
+                  dropdown('Merk Aluminium', _project.activeBrand, _localCatalog.map((b) => b.name).toList(), (val) {
                     setState(() {
-                      _project.brand = val;
+                      _project.activeBrand = val;
+                      final brand = _localCatalog.firstWhere((b) => b.name == val);
+                      if (!brand.series.any((s) => s.id == _project.activeSeriesId)) {
+                        _project.activeSeriesId = brand.series.first.id;
+                      }
                     });
                     _updateEstimatedPrice();
                   }),
-                  dropdown('Ukuran Kusen', _project.kusenSize, ['3 inch', '4 inch'], (val) {
+                  dropdown('Ukuran Kusen / Seri', _localCatalog.firstWhere((b) => b.name == _project.activeBrand).series.firstWhere((s) => s.id == _project.activeSeriesId, orElse: () => _localCatalog.firstWhere((b) => b.name == _project.activeBrand).series.first).name, _localCatalog.firstWhere((b) => b.name == _project.activeBrand).series.map((s) => s.name).toList(), (val) {
                     setState(() {
-                      _project.kusenSize = val;
+                      final brand = _localCatalog.firstWhere((b) => b.name == _project.activeBrand);
+                      final seri = brand.series.firstWhere((s) => s.name == val);
+                      _project.activeSeriesId = seri.id;
                     });
                     _updateEstimatedPrice();
                   }),
-                  dropdown('Profil Daun Jendela', _project.daunJendelaProfil, ['2 Profil', '3 Profil'], (val) {
-                    setState(() {
-                      _project.daunJendelaProfil = val;
-                    });
-                    _updateEstimatedPrice();
-                  }),
-                  dropdown('Profil Sliding Window', _project.slidingWindowType, ['Ekonomis', 'Jumbo'], (val) {
-                    setState(() {
-                      _project.slidingWindowType = val;
-                    });
-                    _updateEstimatedPrice();
-                  }),
+                  const SizedBox(height: 12),
+                  const Text('KATALOG PROFIL', style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 1.2)),
+                  const Divider(color: Colors.white12, height: 16),
+                  Container(
+                    height: 250,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withAlpha(5),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.white12),
+                    ),
+                    child: ListView(
+                      padding: const EdgeInsets.all(8),
+                      children: () {
+                        final brand = _localCatalog.firstWhere((b) => b.name == _project.activeBrand);
+                        final series = brand.series.firstWhere((s) => s.id == _project.activeSeriesId, orElse: () => brand.series.first);
+                        final Map<String, List<ProfileItem>> grouped = {};
+                        for (var item in series.items) {
+                          grouped.putIfAbsent(item.category, () => []).add(item);
+                        }
+                        List<Widget> widgets = [];
+                        grouped.forEach((category, items) {
+                          widgets.add(Padding(
+                            padding: const EdgeInsets.only(top: 8, bottom: 4),
+                            child: Text(category.toUpperCase(), style: const TextStyle(color: Color(0xFFFF6D00), fontSize: 10, fontWeight: FontWeight.bold)),
+                          ));
+                          for (var item in items) {
+                            widgets.add(Container(
+                              margin: const EdgeInsets.only(bottom: 4),
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                              decoration: BoxDecoration(color: Colors.white.withAlpha(10), borderRadius: BorderRadius.circular(4)),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Expanded(child: Text(item.profileName, style: const TextStyle(color: Colors.white, fontSize: 12))),
+                                  Text('${item.thickness} cm', style: const TextStyle(color: Colors.white70, fontSize: 11, fontFamily: 'monospace')),
+                                  const SizedBox(width: 12),
+                                  Text('Rp ${item.price.toStringAsFixed(0)}', style: const TextStyle(color: Colors.greenAccent, fontSize: 11, fontFamily: 'monospace')),
+                                ],
+                              ),
+                            ));
+                          }
+                        });
+                        return widgets;
+                      }(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: () {
+                         Navigator.pop(context);
+                         _showAddItemDialog();
+                      },
+                      icon: const Icon(Icons.add, size: 16),
+                      label: const Text('Tambah Item', style: TextStyle(fontWeight: FontWeight.bold)),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF2C2C2C),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                    ),
+                  ),
                   const SizedBox(height: 20),
                 ],
               ),
@@ -537,6 +844,113 @@ class _DesignBuilderPageState extends State<DesignBuilderPage> with SingleTicker
           },
         );
       },
+    );
+  }
+
+  
+  void _showAddItemDialog() {
+    String category = 'Kusen';
+    String profileName = '';
+    double thickness = 0.0;
+    double price = 0.0;
+    
+    showDialog(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setStateModal) {
+            return AlertDialog(
+              backgroundColor: const Color(0xFF1A1A1A),
+              title: const Text('Tambah Profile Baru', style: TextStyle(color: Colors.white, fontSize: 16)),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  DropdownButtonFormField<String>(
+                    value: category,
+                    dropdownColor: const Color(0xFF2C2C2C),
+                    style: const TextStyle(color: Colors.black),
+                    decoration: const InputDecoration(
+                      filled: true,
+                      fillColor: Colors.white,
+                      labelText: 'Kategori',
+                      labelStyle: TextStyle(color: Colors.black54),
+                    ),
+                    items: ['Kusen', 'Daun Pintu', 'Daun Jendela', 'Sliding Door', 'Sliding Window', 'Mullion', 'Kaca', 'Variasi']
+                        .map((c) => DropdownMenuItem(
+                          value: c,
+                          child: Text(c, style: const TextStyle(color: Colors.white)),
+                        ))
+                        .toList(),
+                    selectedItemBuilder: (BuildContext context) {
+                      return ['Kusen', 'Daun Pintu', 'Daun Jendela', 'Sliding Door', 'Sliding Window', 'Mullion', 'Kaca', 'Variasi']
+                          .map((c) => Text(c, style: const TextStyle(color: Colors.black)))
+                          .toList();
+                    },
+                    onChanged: (v) => setStateModal(() => category = v!),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    style: const TextStyle(color: Colors.black),
+                    decoration: const InputDecoration(
+                      filled: true,
+                      fillColor: Colors.white,
+                      labelText: 'Nama Profil',
+                      labelStyle: TextStyle(color: Colors.black54),
+                    ),
+                    onChanged: (v) => profileName = v,
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    style: const TextStyle(color: Colors.black),
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      filled: true,
+                      fillColor: Colors.white,
+                      labelText: 'Ketebalan (cm)',
+                      labelStyle: TextStyle(color: Colors.black54),
+                    ),
+                    onChanged: (v) => thickness = double.tryParse(v) ?? 0.0,
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    style: const TextStyle(color: Colors.black),
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      filled: true,
+                      fillColor: Colors.white,
+                      labelText: 'Harga (per batang/meter)',
+                      labelStyle: TextStyle(color: Colors.black54),
+                    ),
+                    onChanged: (v) => price = double.tryParse(v) ?? 0.0,
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Batal', style: TextStyle(color: Colors.white54)),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    if (profileName.isNotEmpty) {
+                      final brand = _localCatalog.firstWhere((b) => b.name == _project.activeBrand);
+                      final series = brand.series.firstWhere((s) => s.id == _project.activeSeriesId);
+                      setState(() {
+                        series.items.add(ProfileItem(category: category, profileName: profileName, thickness: thickness, price: price));
+                      });
+                      _updateEstimatedPrice();
+                    }
+                    Navigator.pop(context);
+                    _showSettingsDialog();
+                  },
+                  style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFFF6D00)),
+                  child: const Text('Simpan', style: TextStyle(color: Colors.white)),
+                ),
+              ],
+            );
+          }
+        );
+      }
     );
   }
 
@@ -654,6 +1068,10 @@ class _DesignBuilderPageState extends State<DesignBuilderPage> with SingleTicker
       if (hit != null && hit.handleId != null) {
         _saveToHistory();
         if (hit.handleId == 'drag_frame') {
+          final frame = _getFrameById(hit.object.id);
+          if (frame != null) {
+            _activeConnections = _findAllSnapConnections();
+          }
           setState(() {
             _isInteractingWithHandle = true;
             _isDragging = true;
@@ -716,9 +1134,83 @@ class _DesignBuilderPageState extends State<DesignBuilderPage> with SingleTicker
         final frame = _getFrameById(_draggedObject!.id);
         if (frame != null) {
           setState(() {
-            frame.x += delta.dx;
-            frame.y += delta.dy;
-            _applySnapping(frame, isDrag: true);
+            final Map<String, Offset> displacements = {frame.id: delta};
+            final List<String> queue = [frame.id];
+            final Set<String> visited = {frame.id};
+
+            while (queue.isNotEmpty) {
+              final currentId = queue.removeAt(0);
+              final current = _getFrameById(currentId);
+              if (current == null) continue;
+              final currentDisp = displacements[currentId]!;
+
+              for (final conn in _activeConnections) {
+                if (conn.frameId1 == currentId || conn.frameId2 == currentId) {
+                  final otherId = conn.frameId1 == currentId ? conn.frameId2 : conn.frameId1;
+                  if (visited.contains(otherId)) continue;
+
+                  final other = _getFrameById(otherId);
+                  if (other == null) continue;
+
+                  final f1 = _getFrameById(conn.frameId1)!;
+                  final f2 = _getFrameById(conn.frameId2)!;
+
+                  final otherDisp = getPropagatedDisplacement(
+                    f1: f1,
+                    f2: f2,
+                    isHorizontal: conn.axis == Axis.horizontal,
+                    currentId: currentId,
+                    currentDisp: currentDisp,
+                  );
+
+                  displacements[otherId] = otherDisp;
+                  visited.add(otherId);
+                  queue.add(otherId);
+                }
+              }
+            }
+
+            // Apply calculated displacements
+            displacements.forEach((fid, disp) {
+              final f = _getFrameById(fid);
+              if (f != null) {
+                f.x += disp.dx;
+                f.y += disp.dy;
+              }
+            });
+
+            // Break relations where gap exceeds threshold (20.0 pixels)
+            _activeConnections.removeWhere((conn) {
+              final f1 = _getFrameById(conn.frameId1);
+              final f2 = _getFrameById(conn.frameId2);
+              if (f1 == null || f2 == null) return true;
+
+              if (conn.axis == Axis.horizontal) {
+                final double gap = f2.x - (f1.x + f1.renderWidth);
+                return gap > 20.0;
+              } else {
+                final double gap = f2.y - (f1.y + f1.renderHeight);
+                return gap > 20.0;
+              }
+            });
+
+            // Apply snapping on the primarily dragged frame, ignoring others in the dragged group
+            final double oldX = frame.x;
+            final double oldY = frame.y;
+            _applySnapping(frame, isDrag: true, ignoreIds: visited);
+            final double correctionX = frame.x - oldX;
+            final double correctionY = frame.y - oldY;
+
+            if (correctionX != 0.0 || correctionY != 0.0) {
+              for (final fid in visited) {
+                if (fid == frame.id) continue;
+                final f = _getFrameById(fid);
+                if (f != null) {
+                  f.x += correctionX;
+                  f.y += correctionY;
+                }
+              }
+            }
           });
         }
       } else if (_interactionType == _CanvasInteraction.resizeFrame && _resizeHandle != null) {
@@ -727,23 +1219,61 @@ class _DesignBuilderPageState extends State<DesignBuilderPage> with SingleTicker
           final cmPerPx = 1 / FrameNode.pxPerCm;
           setState(() {
             final handle = _resizeHandle!;
+            double dx = delta.dx;
+            double dy = delta.dy;
+
+            // Record pre-resize boundaries
+            final double preLeft = frame.x;
+            final double preRight = frame.x + frame.renderWidth;
+            final double preTop = frame.y;
+            final double preBottom = frame.y + frame.renderHeight;
+
+            // Apply size changes
             if (handle.contains('r')) {
-              frame.widthCm = (frame.widthCm + delta.dx * cmPerPx).clamp(30, 500);
+              frame.widthCm = (frame.widthCm + dx * cmPerPx).clamp(30.0, 500.0);
             }
             if (handle.contains('l')) {
-              final newW = (frame.widthCm - delta.dx * cmPerPx).clamp(30.0, 500.0);
+              final newW = (frame.widthCm - dx * cmPerPx).clamp(30.0, 500.0);
               frame.x += (frame.widthCm - newW) * FrameNode.pxPerCm;
               frame.widthCm = newW;
             }
             if (handle.contains('b')) {
-              frame.heightCm = (frame.heightCm + delta.dy * cmPerPx).clamp(30, 500);
+              frame.heightCm = (frame.heightCm + dy * cmPerPx).clamp(30.0, 500.0);
             }
             if (handle.contains('t')) {
-              final newH = (frame.heightCm - delta.dy * cmPerPx).clamp(30.0, 500.0);
+              final newH = (frame.heightCm - dy * cmPerPx).clamp(30.0, 500.0);
               frame.y += (frame.heightCm - newH) * FrameNode.pxPerCm;
               frame.heightCm = newH;
             }
+
+            // Apply snapping on the resized frame
             _applySnapping(frame, isDrag: false, handle: handle);
+
+            // Record post-resize boundaries
+            final double postLeft = frame.x;
+            final double postRight = frame.x + frame.renderWidth;
+            final double postTop = frame.y;
+            final double postBottom = frame.y + frame.renderHeight;
+
+            // Calculate actual shift deltas
+            final double deltaL = postLeft - preLeft;
+            final double deltaR = postRight - preRight;
+            final double deltaT = postTop - preTop;
+            final double deltaB = postBottom - preBottom;
+
+            // Propagate shift deltas recursively to snapped neighbors
+            if (deltaR != 0.0) {
+              _propagateRightShift(frame, deltaR, {frame.id});
+            }
+            if (deltaL != 0.0) {
+              _propagateLeftShift(frame, deltaL, {frame.id});
+            }
+            if (deltaB != 0.0) {
+              _propagateBottomShift(frame, deltaB, {frame.id});
+            }
+            if (deltaT != 0.0) {
+              _propagateTopShift(frame, deltaT, {frame.id});
+            }
           });
         }
       } else if (_interactionType == _CanvasInteraction.dragMullion) {
@@ -797,6 +1327,7 @@ class _DesignBuilderPageState extends State<DesignBuilderPage> with SingleTicker
             widthCm: (rect.width / FrameNode.pxPerCm).clamp(30.0, 500.0),
             heightCm: (rect.height / FrameNode.pxPerCm).clamp(30.0, 500.0),
             type: type,
+            profileCount: type == FrameType.jendela ? 2 : 1,
           );
           _project.frames.add(frame);
           _selectedFrameId = frame.id;
@@ -804,6 +1335,7 @@ class _DesignBuilderPageState extends State<DesignBuilderPage> with SingleTicker
           _activeSubTool = 'edit';
         });
         _updateEstimatedPrice();
+        _checkAndMergeFrames();
       }
       _resetInteractionState();
       return;
@@ -817,8 +1349,16 @@ class _DesignBuilderPageState extends State<DesignBuilderPage> with SingleTicker
     
     if (wasTap) {
       _handleCanvasTap(canvasPoint);
+    } else {
+      if (_interactionType == _CanvasInteraction.dragFrame && _draggedObject != null) {
+        setState(() {
+          _snapBackActiveConnections(_draggedObject!.id);
+        });
+      }
+      _checkAndMergeFrames();
     }
     
+    _activeConnections.clear();
     _resetInteractionState();
   }
   
@@ -839,6 +1379,7 @@ class _DesignBuilderPageState extends State<DesignBuilderPage> with SingleTicker
       _pointerDownTime = null;
       _vSnapLines.clear();
       _hSnapLines.clear();
+      _activeConnections.clear();
     });
   }
 
@@ -869,6 +1410,11 @@ class _DesignBuilderPageState extends State<DesignBuilderPage> with SingleTicker
       return;
     }
 
+    if (hit.subPanel != null && hit.isSubPanelWidth != null) {
+      _showSubPanelDimensionDialog(hit.subPanel!, hit.isSubPanelWidth!);
+      return;
+    }
+
     final hitObj = hit.object;
     
     if (_activeMainTool == ToolMode.mullion) {
@@ -877,6 +1423,14 @@ class _DesignBuilderPageState extends State<DesignBuilderPage> with SingleTicker
         if (panel != null && panel.isLeaf) {
           _saveToHistory();
           setState(() {
+
+            double getMullionThick() {
+              final brand = _localCatalog.firstWhere((b) => b.name == _project.activeBrand, orElse: () => _localCatalog.first);
+              final series = brand.series.firstWhere((s) => s.id == _project.activeSeriesId, orElse: () => brand.series.first);
+              final item = series.items.firstWhere((i) => i.category == 'Mullion' || i.category == 'Kusen', orElse: () => ProfileItem(category: '', profileName: '', thickness: 5.0, price: 0));
+              return item.thickness > 0 ? item.thickness : 5.0;
+            }
+
             if (_activeSubTool == 'bebas_v') {
               panel.split(SplitDirection.vertical);
             } else if (_activeSubTool == 'bebas_h') {
@@ -888,6 +1442,11 @@ class _DesignBuilderPageState extends State<DesignBuilderPage> with SingleTicker
             } else if (_activeSubTool == 'equal_4') {
               panel.splitEqually(SplitDirection.vertical, 4);
             }
+            
+            for (var m in panel.mullions) {
+              m.thicknessCm = getMullionThick();
+            }
+
           });
           _updateEstimatedPrice();
         }
@@ -898,7 +1457,11 @@ class _DesignBuilderPageState extends State<DesignBuilderPage> with SingleTicker
         if (panel != null && panel.isLeaf) {
           _saveToHistory();
           setState(() {
-            panel.openingType = _activeSubTool == 'casement' ? OpeningType.casement : OpeningType.fixed;
+            if (_activeSubTool == 'casement') {
+              panel.opening = OpeningTypeNode(category: 'window', type: 'casement', direction: 'left', material: 'glass');
+            } else {
+              panel.opening = OpeningTypeNode(category: 'window', type: 'fixed', direction: 'none', material: 'glass');
+            }
           });
           _updateEstimatedPrice();
         }
@@ -910,14 +1473,14 @@ class _DesignBuilderPageState extends State<DesignBuilderPage> with SingleTicker
           _saveToHistory();
           setState(() {
             switch (_activeSubTool) {
-              case 'glassSingle': panel.openingType = OpeningType.glassSingle; break;
-              case 'glassDouble': panel.openingType = OpeningType.glassDouble; break;
-              case 'acpSingle': panel.openingType = OpeningType.acpSingle; break;
-              case 'acpDouble': panel.openingType = OpeningType.acpDouble; break;
-              case 'panelSingle': panel.openingType = OpeningType.panelSingle; break;
-              case 'panelDouble': panel.openingType = OpeningType.panelDouble; break;
-              case 'folding3': panel.openingType = OpeningType.folding3; break;
-              case 'folding4': panel.openingType = OpeningType.folding4; break;
+              case 'glassSingle': panel.opening = OpeningTypeNode(category: 'door', type: 'swing', direction: 'left', material: 'glass'); break;
+              case 'glassDouble': panel.opening = OpeningTypeNode(category: 'door', type: 'swing', direction: 'double', material: 'glass'); break;
+              case 'acpSingle': panel.opening = OpeningTypeNode(category: 'door', type: 'swing', direction: 'left', material: 'acp'); break;
+              case 'acpDouble': panel.opening = OpeningTypeNode(category: 'door', type: 'swing', direction: 'double', material: 'acp'); break;
+              case 'panelSingle': panel.opening = OpeningTypeNode(category: 'door', type: 'swing', direction: 'left', material: 'panel'); break;
+              case 'panelDouble': panel.opening = OpeningTypeNode(category: 'door', type: 'swing', direction: 'double', material: 'panel'); break;
+              case 'folding3': panel.opening = OpeningTypeNode(category: 'door', type: 'folding', leafCount: 3, material: 'glass'); break;
+              case 'folding4': panel.opening = OpeningTypeNode(category: 'door', type: 'folding', leafCount: 4, material: 'glass'); break;
             }
           });
           _updateEstimatedPrice();
@@ -930,11 +1493,11 @@ class _DesignBuilderPageState extends State<DesignBuilderPage> with SingleTicker
           _saveToHistory();
           setState(() {
             switch (_activeSubTool) {
-              case 'slidingUpDown': panel.openingType = OpeningType.slidingUpDown; break;
-              case 'slidingLeftRight': panel.openingType = OpeningType.slidingLeftRight; break;
-              case 'sliding2Daun': panel.openingType = OpeningType.sliding2Daun; break;
-              case 'sliding3Daun': panel.openingType = OpeningType.sliding3Daun; break;
-              case 'sliding4Daun': panel.openingType = OpeningType.sliding4Daun; break;
+              case 'slidingUpDown': panel.opening = OpeningTypeNode(category: 'window', type: 'sliding', direction: 'left', leafCount: 2); break;
+              case 'slidingLeftRight': panel.opening = OpeningTypeNode(category: 'window', type: 'sliding', direction: 'left', leafCount: 2); break;
+              case 'sliding2Daun': panel.opening = OpeningTypeNode(category: 'door', type: 'sliding', direction: 'double', leafCount: 2); break;
+              case 'sliding3Daun': panel.opening = OpeningTypeNode(category: 'door', type: 'sliding', direction: 'left', leafCount: 3); break;
+              case 'sliding4Daun': panel.opening = OpeningTypeNode(category: 'door', type: 'sliding', direction: 'double', leafCount: 4); break;
             }
           });
           _updateEstimatedPrice();
@@ -989,7 +1552,7 @@ class _DesignBuilderPageState extends State<DesignBuilderPage> with SingleTicker
   }
 
   // ─── MAGNETIC SNAPPING ───
-  void _applySnapping(FrameNode current, {required bool isDrag, String? handle}) {
+  void _applySnapping(FrameNode current, {required bool isDrag, String? handle, Set<String>? ignoreIds}) {
     _vSnapLines.clear();
     _hSnapLines.clear();
     const snapThreshold = 12.0;
@@ -1001,6 +1564,7 @@ class _DesignBuilderPageState extends State<DesignBuilderPage> with SingleTicker
 
     for (final other in _project.frames) {
       if (other.id == current.id) continue;
+      if (ignoreIds != null && ignoreIds.contains(other.id)) continue;
 
       double ox = other.x;
       double oy = other.y;
@@ -1047,6 +1611,288 @@ class _DesignBuilderPageState extends State<DesignBuilderPage> with SingleTicker
       else if ((cy - oy).abs() < snapThreshold) {
         current.y = oy;
         _hSnapLines.add(oy);
+      }
+    }
+  }
+
+  List<SnapConnection> _findAllSnapConnections() {
+    final List<SnapConnection> connections = [];
+    const double threshold = 3.0;
+
+    for (int i = 0; i < _project.frames.length; i++) {
+      final fa = _project.frames[i];
+      final wA = fa.renderWidth;
+      final hA = fa.renderHeight;
+
+      for (int j = i + 1; j < _project.frames.length; j++) {
+        final fb = _project.frames[j];
+        final wB = fb.renderWidth;
+        final hB = fb.renderHeight;
+
+        // Check horizontal snap (left-right)
+        // fa is left, fb is right
+        if ((fa.x + wA - fb.x).abs() < threshold) {
+          final overlap = min(fa.y + hA, fb.y + hB) - max(fa.y, fb.y);
+          if (overlap > 1.0) {
+            connections.add(SnapConnection(frameId1: fa.id, frameId2: fb.id, axis: Axis.horizontal));
+          }
+        }
+        // fb is left, fa is right
+        else if ((fb.x + wB - fa.x).abs() < threshold) {
+          final overlap = min(fa.y + hA, fb.y + hB) - max(fa.y, fb.y);
+          if (overlap > 1.0) {
+            connections.add(SnapConnection(frameId1: fb.id, frameId2: fa.id, axis: Axis.horizontal));
+          }
+        }
+
+        // Check vertical snap (top-bottom)
+        // fa is top, fb is bottom
+        if ((fa.y + hA - fb.y).abs() < threshold) {
+          final overlap = min(fa.x + wA, fb.x + wB) - max(fa.x, fb.x);
+          if (overlap > 1.0) {
+            connections.add(SnapConnection(frameId1: fa.id, frameId2: fb.id, axis: Axis.vertical));
+          }
+        }
+        // fb is top, fa is bottom
+        else if ((fb.y + hB - fa.y).abs() < threshold) {
+          final overlap = min(fa.x + wA, fb.x + wB) - max(fa.x, fb.x);
+          if (overlap > 1.0) {
+            connections.add(SnapConnection(frameId1: fb.id, frameId2: fa.id, axis: Axis.vertical));
+          }
+        }
+      }
+    }
+    return connections;
+  }
+
+  Offset getPropagatedDisplacement({
+    required FrameNode f1,
+    required FrameNode f2,
+    required bool isHorizontal,
+    required String currentId,
+    required Offset currentDisp,
+  }) {
+    double dx = 0;
+    double dy = 0;
+
+    if (isHorizontal) {
+      dy = currentDisp.dy;
+
+      final double gap = f2.x - (f1.x + f1.renderWidth);
+
+      if (currentId == f2.id) {
+        final double moveX = currentDisp.dx;
+        if (moveX < 0) {
+          final double closing = moveX.abs();
+          if (closing > gap) {
+            dx = -(closing - gap);
+          } else {
+            dx = 0;
+          }
+        } else {
+          dx = 0;
+        }
+      } else {
+        final double moveX = currentDisp.dx;
+        if (moveX > 0) {
+          final double closing = moveX;
+          if (closing > gap) {
+            dx = closing - gap;
+          } else {
+            dx = 0;
+          }
+        } else {
+          dx = 0;
+        }
+      }
+    } else {
+      dx = currentDisp.dx;
+
+      final double gap = f2.y - (f1.y + f1.renderHeight);
+
+      if (currentId == f2.id) {
+        final double moveY = currentDisp.dy;
+        if (moveY < 0) {
+          final double closing = moveY.abs();
+          if (closing > gap) {
+            dy = -(closing - gap);
+          } else {
+            dy = 0;
+          }
+        } else {
+          dy = 0;
+        }
+      } else {
+        final double moveY = currentDisp.dy;
+        if (moveY > 0) {
+          final double closing = moveY;
+          if (closing > gap) {
+            dy = closing - gap;
+          } else {
+            dy = 0;
+          }
+        } else {
+          dy = 0;
+        }
+      }
+    }
+
+    return Offset(dx, dy);
+  }
+
+  void _snapBackActiveConnections(String anchorId) {
+    final List<String> queue = [anchorId];
+    final Set<String> visited = {anchorId};
+
+    while (queue.isNotEmpty) {
+      final currentId = queue.removeAt(0);
+      final current = _getFrameById(currentId);
+      if (current == null) continue;
+
+      for (final conn in _activeConnections) {
+        if (conn.frameId1 == currentId || conn.frameId2 == currentId) {
+          final otherId = conn.frameId1 == currentId ? conn.frameId2 : conn.frameId1;
+          if (visited.contains(otherId)) continue;
+
+          final other = _getFrameById(otherId);
+          if (other == null) continue;
+
+          if (conn.axis == Axis.horizontal) {
+            if (currentId == conn.frameId2) {
+              other.x = current.x - other.renderWidth;
+            } else {
+              other.x = current.x + current.renderWidth;
+            }
+          } else {
+            if (currentId == conn.frameId2) {
+              other.y = current.y - other.renderHeight;
+            } else {
+              other.y = current.y + current.renderHeight;
+            }
+          }
+
+          visited.add(otherId);
+          queue.add(otherId);
+        }
+      }
+    }
+  }
+
+  void _checkAndMergeFrames() {
+    _updateEstimatedPrice();
+  }
+
+  bool areFramesSnapped(FrameNode fa, FrameNode fb) {
+    if (fa.id == fb.id) return false;
+    final wA = fa.renderWidth;
+    final hA = fa.renderHeight;
+    final wB = fb.renderWidth;
+    final hB = fb.renderHeight;
+
+    const double threshold = 3.0; // overlap and closeness tolerance
+
+    // Check if fa's right touches fb's left
+    if ((fa.x + wA - fb.x).abs() < threshold) {
+      final overlap = min(fa.y + hA, fb.y + hB) - max(fa.y, fb.y);
+      if (overlap > 1.0) return true;
+    }
+    // Check if fb's right touches fa's left
+    if ((fb.x + wB - fa.x).abs() < threshold) {
+      final overlap = min(fa.y + hA, fb.y + hB) - max(fa.y, fb.y);
+      if (overlap > 1.0) return true;
+    }
+    // Check if fa's bottom touches fb's top
+    if ((fa.y + hA - fb.y).abs() < threshold) {
+      final overlap = min(fa.x + wA, fb.x + wB) - max(fa.x, fb.x);
+      if (overlap > 1.0) return true;
+    }
+    // Check if fb's bottom touches fa's top
+    if ((fb.y + hB - fa.y).abs() < threshold) {
+      final overlap = min(fa.x + wA, fb.x + wB) - max(fa.x, fb.x);
+      if (overlap > 1.0) return true;
+    }
+
+    return false;
+  }
+
+  Set<String> getConnectedSnappedFrameIds(FrameNode startFrame) {
+    final Set<String> visited = {startFrame.id};
+    final List<FrameNode> queue = [startFrame];
+
+    while (queue.isNotEmpty) {
+      final current = queue.removeAt(0);
+      for (final other in _project.frames) {
+        if (!visited.contains(other.id) && areFramesSnapped(current, other)) {
+          visited.add(other.id);
+          queue.add(other);
+        }
+      }
+    }
+    return visited;
+  }
+
+  void _propagateRightShift(FrameNode source, double dx, Set<String> visited) {
+    visited.add(source.id);
+    final sourceRight = source.x + source.renderWidth;
+    for (final other in _project.frames) {
+      if (visited.contains(other.id)) continue;
+      // If other's left edge is touching source's right edge
+      if ((other.x - sourceRight).abs() < 3.0) {
+        final overlap = min(source.y + source.renderHeight, other.y + other.renderHeight) - max(source.y, other.y);
+        if (overlap > 1.0) {
+          other.x += dx;
+          _propagateRightShift(other, dx, visited);
+        }
+      }
+    }
+  }
+
+  void _propagateLeftShift(FrameNode source, double dx, Set<String> visited) {
+    visited.add(source.id);
+    final sourceLeft = source.x;
+    for (final other in _project.frames) {
+      if (visited.contains(other.id)) continue;
+      // If other's right edge is touching source's left edge
+      final otherRight = other.x + other.renderWidth;
+      if ((otherRight - sourceLeft).abs() < 3.0) {
+        final overlap = min(source.y + source.renderHeight, other.y + other.renderHeight) - max(source.y, other.y);
+        if (overlap > 1.0) {
+          other.x += dx;
+          _propagateLeftShift(other, dx, visited);
+        }
+      }
+    }
+  }
+
+  void _propagateBottomShift(FrameNode source, double dy, Set<String> visited) {
+    visited.add(source.id);
+    final sourceBottom = source.y + source.renderHeight;
+    for (final other in _project.frames) {
+      if (visited.contains(other.id)) continue;
+      // If other's top edge is touching source's bottom edge
+      if ((other.y - sourceBottom).abs() < 3.0) {
+        final overlap = min(source.x + source.renderWidth, other.x + other.renderWidth) - max(source.x, other.x);
+        if (overlap > 1.0) {
+          other.y += dy;
+          _propagateBottomShift(other, dy, visited);
+        }
+      }
+    }
+  }
+
+  void _propagateTopShift(FrameNode source, double dy, Set<String> visited) {
+    visited.add(source.id);
+    final sourceTop = source.y;
+    for (final other in _project.frames) {
+      if (visited.contains(other.id)) continue;
+      // If other's bottom edge is touching source's top edge
+      final otherBottom = other.y + other.renderHeight;
+      if ((otherBottom - sourceTop).abs() < 3.0) {
+        final overlap = min(source.x + source.renderWidth, other.x + other.renderWidth) - max(source.x, other.x);
+        if (overlap > 1.0) {
+          other.y += dy;
+          _propagateTopShift(other, dy, visited);
+        }
       }
     }
   }
@@ -1152,10 +1998,12 @@ class _DesignBuilderPageState extends State<DesignBuilderPage> with SingleTicker
           controller: controller,
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
           autofocus: true,
-          style: const TextStyle(color: Colors.white, fontFamily: 'monospace'),
+          style: const TextStyle(color: Colors.black, fontFamily: 'monospace'),
           decoration: const InputDecoration(
+            filled: true,
+            fillColor: Colors.white,
             hintText: 'Masukkan ukuran...',
-            hintStyle: TextStyle(color: Colors.white30),
+            hintStyle: TextStyle(color: Colors.black38),
             enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Color(0xFFFF6D00))),
             focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: Color(0xFFFF6D00))),
           ),
@@ -1171,10 +2019,37 @@ class _DesignBuilderPageState extends State<DesignBuilderPage> with SingleTicker
               if (val != null && val >= 30 && val <= 500) {
                 _saveToHistory();
                 setState(() {
+                  // Record pre-resize boundaries
+                  final double preRight = frame.x + frame.renderWidth;
+                  final double preBottom = frame.y + frame.renderHeight;
+
                   if (isWidth) {
                     frame.widthCm = val;
                   } else {
                     frame.heightCm = val;
+                  }
+
+                  // Apply snapping after typed dimensions (resize direction is right or bottom)
+                  _applySnapping(frame, isDrag: false, handle: isWidth ? 'r' : 'b');
+
+                  // Record post-resize boundaries
+                  final double postRight = frame.x + frame.renderWidth;
+                  final double postBottom = frame.y + frame.renderHeight;
+
+                  // Calculate actual shift deltas
+                  final double deltaR = postRight - preRight;
+                  final double deltaB = postBottom - preBottom;
+
+                  // Clear guidelines
+                  _vSnapLines.clear();
+                  _hSnapLines.clear();
+
+                  // Propagate shift deltas recursively to snapped neighbors
+                  if (isWidth && deltaR != 0.0) {
+                    _propagateRightShift(frame, deltaR, {frame.id});
+                  }
+                  if (!isWidth && deltaB != 0.0) {
+                    _propagateBottomShift(frame, deltaB, {frame.id});
                   }
                 });
                 Navigator.pop(context);
@@ -1195,55 +2070,134 @@ class _DesignBuilderPageState extends State<DesignBuilderPage> with SingleTicker
     );
   }
 
-  // Helper to find all frames snapped (touching) to a starting frame using BFS
-  List<FrameNode> _getConnectedFrames(FrameNode startFrame) {
-    List<FrameNode> connected = [startFrame];
-    List<FrameNode> queue = [startFrame];
-    Set<String> visited = {startFrame.id};
+  void _showSubPanelDimensionDialog(PanelNode subPanel, bool isWidth) {
+    final frame = _getSelectedFrame();
+    if (frame == null) return;
 
-    while (queue.isNotEmpty) {
-      final current = queue.removeAt(0);
-      final cx = current.x;
-      final cy = current.y;
-      final cw = current.renderWidth;
-      final ch = current.renderHeight;
+    final parent = frame.rootPanel.findParent(subPanel.id);
+    if (parent == null) return;
 
-      for (final other in _project.frames) {
-        if (visited.contains(other.id)) continue;
+    final double frameThickness = _project.getActiveKusenThickness(_localCatalog);
+    final double mullionThickness = _project.getActiveMullionThickness(_localCatalog);
 
-        final ox = other.x;
-        final oy = other.y;
-        final ow = other.renderWidth;
-        final oh = other.renderHeight;
+    final layouts = frame.getPanelLayouts(
+      frameThickness: frameThickness,
+      mullionThickness: mullionThickness,
+    );
 
-        bool touching = false;
+    final parentLayout = layouts.firstWhere(
+      (l) => l.panel.id == parent.id,
+      orElse: () => PanelLayoutInfo(panel: parent, rect: Rect.zero, widthCm: frame.widthCm, heightCm: frame.heightCm),
+    );
+    final parentSizeCm = isWidth ? parentLayout.widthCm : parentLayout.heightCm;
 
-        // Horizontal touching check with 1.5px tolerance
-        final hTouch1 = (cx - (ox + ow)).abs() < 1.5;
-        final hTouch2 = ((cx + cw) - ox).abs() < 1.5;
-        final vOverlap = (cy < oy + oh) && (cy + ch > oy);
+    final availableCm = parentSizeCm;
 
-        if ((hTouch1 || hTouch2) && vOverlap) {
-          touching = true;
-        }
+    // Get current size in cm for this sub-panel
+    final subLayout = layouts.firstWhere(
+      (l) => l.panel.id == subPanel.id,
+      orElse: () => PanelLayoutInfo(panel: subPanel, rect: Rect.zero, widthCm: 0, heightCm: 0),
+    );
+    final currentCm = isWidth ? subLayout.widthCm : subLayout.heightCm;
 
-        // Vertical touching check with 1.5px tolerance
-        final vTouch1 = (cy - (oy + oh)).abs() < 1.5;
-        final vTouch2 = ((cy + ch) - oy).abs() < 1.5;
-        final hOverlap = (cx < ox + ow) && (cx + cw > ox);
+    final controller = TextEditingController(
+      text: currentCm.toStringAsFixed(0),
+    );
 
-        if ((vTouch1 || vTouch2) && hOverlap) {
-          touching = true;
-        }
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1A1A1A),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        title: Text(
+          isWidth ? 'Ubah Lebar Sub-Panel (cm)' : 'Ubah Tinggi Sub-Panel (cm)',
+          style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold, fontFamily: 'monospace'),
+        ),
+        content: TextField(
+          controller: controller,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          autofocus: true,
+          style: const TextStyle(color: Colors.black, fontFamily: 'monospace'),
+          decoration: const InputDecoration(
+            filled: true,
+            fillColor: Colors.white,
+            hintText: 'Masukkan ukuran...',
+            hintStyle: TextStyle(color: Colors.black38),
+            enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Color(0xFFFF6D00))),
+            focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: Color(0xFFFF6D00))),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('BATAL', style: TextStyle(color: Colors.white70)),
+          ),
+          TextButton(
+            onPressed: () {
+              final val = double.tryParse(controller.text);
+              final double minSubPanelSize = 2.0;
 
-        if (touching) {
-          visited.add(other.id);
-          connected.add(other);
-          queue.add(other);
-        }
-      }
-    }
-    return connected;
+              if (val == null || val < minSubPanelSize) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Ukuran minimal panel adalah $minSubPanelSize cm'),
+                    backgroundColor: Colors.redAccent,
+                  ),
+                );
+                return;
+              }
+
+              final double minRequiredRemSpace = minSubPanelSize * (parent.children.length - 1);
+              final remSpace = availableCm - val;
+
+              if (remSpace < minRequiredRemSpace) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Ukuran terlalu besar. Sisa ruang untuk panel lain tidak mencukupi (minimal ${minRequiredRemSpace.toStringAsFixed(1)} cm)'),
+                    backgroundColor: Colors.redAccent,
+                  ),
+                );
+                return;
+              }
+
+              _saveToHistory();
+              setState(() {
+                final totalFlex = parent.childFlex.fold(0.0, (a, b) => a + b);
+                final targetIndex = parent.children.indexOf(subPanel);
+                if (targetIndex != -1) {
+                  final oldFlexC = parent.childFlex[targetIndex];
+                  final sumOfOtherFlexes = totalFlex - oldFlexC;
+
+                  final List<double> newFlex = List.from(parent.childFlex);
+                  if (sumOfOtherFlexes > 0) {
+                    for (int i = 0; i < parent.children.length; i++) {
+                      if (i == targetIndex) {
+                        newFlex[i] = val;
+                      } else {
+                        newFlex[i] = (parent.childFlex[i] / sumOfOtherFlexes) * remSpace;
+                      }
+                    }
+                  } else {
+                    final share = remSpace / (parent.children.length - 1);
+                    for (int i = 0; i < parent.children.length; i++) {
+                      if (i == targetIndex) {
+                        newFlex[i] = val;
+                      } else {
+                        newFlex[i] = share;
+                      }
+                    }
+                  }
+                  parent.childFlex = newFlex;
+                }
+              });
+              Navigator.pop(context);
+              _updateEstimatedPrice();
+            },
+            child: const Text('SIMPAN', style: TextStyle(color: Color(0xFFFF6D00), fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
   }
 
 
@@ -1457,8 +2411,7 @@ class _DesignBuilderPageState extends State<DesignBuilderPage> with SingleTicker
                 child: Stack(
                   clipBehavior: Clip.none,
                   children: [
-                    // Grid background
-                    Positioned.fill(child: CustomPaint(painter: _GridPainter())),
+                    // Canvas background (grid lines removed)
 
                     // Alignment Snapping Guidelines
                     ..._vSnapLines.map((x) => Positioned(
@@ -1485,6 +2438,106 @@ class _DesignBuilderPageState extends State<DesignBuilderPage> with SingleTicker
                       child: Stack(
                         clipBehavior: Clip.none,
                         children: _project.frames.map((frame) {
+                          final List<BorderRange> leftRanges = [];
+                          final List<BorderRange> rightRanges = [];
+                          final List<BorderRange> topRanges = [];
+                          final List<BorderRange> bottomRanges = [];
+
+                          const double borderThreshold = 3.0;
+                          final wA = frame.renderWidth;
+                          final hA = frame.renderHeight;
+
+                          for (final other in _project.frames) {
+                            if (other.id == frame.id) continue;
+                            
+                            final wB = other.renderWidth;
+                            final hB = other.renderHeight;
+                            final bool frameIsPintu = frame.type == FrameType.pintu;
+                            final bool otherIsPintu = other.type == FrameType.pintu;
+                            
+                            // Left border touches other's right
+                            if ((frame.x - (other.x + wB)).abs() < borderThreshold) {
+                              final startY = max(frame.y, other.y);
+                              final endY = min(frame.y + hA, other.y + hB);
+                              final overlap = endY - startY;
+                              if (overlap > 1.0) {
+                                bool shouldHide = false;
+                                if (otherIsPintu && !frameIsPintu) {
+                                  shouldHide = true;
+                                } else if (!otherIsPintu && frameIsPintu) {
+                                  shouldHide = false;
+                                } else {
+                                  shouldHide = false; // same priority: left/top are not hidden
+                                }
+                                if (shouldHide) {
+                                  leftRanges.add(BorderRange(startY - frame.y, endY - frame.y));
+                                }
+                              }
+                            }
+                            // Right border touches other's left
+                            if (((frame.x + wA) - other.x).abs() < borderThreshold) {
+                              final startY = max(frame.y, other.y);
+                              final endY = min(frame.y + hA, other.y + hB);
+                              final overlap = endY - startY;
+                              if (overlap > 1.0) {
+                                bool shouldHide = false;
+                                if (otherIsPintu && !frameIsPintu) {
+                                  shouldHide = true;
+                                } else if (!otherIsPintu && frameIsPintu) {
+                                  shouldHide = false;
+                                } else {
+                                  shouldHide = true; // same priority: right/bottom are hidden
+                                }
+                                if (shouldHide) {
+                                  rightRanges.add(BorderRange(startY - frame.y, endY - frame.y));
+                                }
+                              }
+                            }
+                            // Top border touches other's bottom
+                            if ((frame.y - (other.y + hB)).abs() < borderThreshold) {
+                              final startX = max(frame.x, other.x);
+                              final endX = min(frame.x + wA, other.x + wB);
+                              final overlap = endX - startX;
+                              if (overlap > 1.0) {
+                                bool shouldHide = false;
+                                if (otherIsPintu && !frameIsPintu) {
+                                  shouldHide = true;
+                                } else if (!otherIsPintu && frameIsPintu) {
+                                  shouldHide = false;
+                                } else {
+                                  shouldHide = false; // same priority: left/top are not hidden
+                                }
+                                if (shouldHide) {
+                                  topRanges.add(BorderRange(startX - frame.x, endX - frame.x));
+                                }
+                              }
+                            }
+                            // Bottom border touches other's top
+                            if (((frame.y + hA) - other.y).abs() < borderThreshold) {
+                              final startX = max(frame.x, other.x);
+                              final endX = min(frame.x + wA, other.x + wB);
+                              final overlap = endX - startX;
+                              if (overlap > 1.0) {
+                                bool shouldHide = false;
+                                if (otherIsPintu && !frameIsPintu) {
+                                  shouldHide = true;
+                                } else if (!otherIsPintu && frameIsPintu) {
+                                  shouldHide = false;
+                                } else {
+                                  shouldHide = true; // same priority: right/bottom are hidden
+                                }
+                                if (shouldHide) {
+                                  bottomRanges.add(BorderRange(startX - frame.x, endX - frame.x));
+                                }
+                              }
+                            }
+                          }
+
+                          final bool hideLeft = leftRanges.any((r) => r.start <= 1.0 && r.end >= hA - 1.0);
+                          final bool hideRight = rightRanges.any((r) => r.start <= 1.0 && r.end >= hA - 1.0);
+                          final bool hideTop = topRanges.any((r) => r.start <= 1.0 && r.end >= wA - 1.0);
+                          final bool hideBottom = bottomRanges.any((r) => r.start <= 1.0 && r.end >= wA - 1.0);
+
                           return Positioned(
                             left: frame.x,
                             top: frame.y,
@@ -1493,6 +2546,17 @@ class _DesignBuilderPageState extends State<DesignBuilderPage> with SingleTicker
                                 frame: frame,
                                 isSelected: frame.id == _selectedFrameId,
                                 selectedPanelId: _selectedPanelId,
+                                frameThickness: _project.getActiveKusenThickness(_localCatalog),
+                                mullionThickness: _project.getActiveMullionThickness(_localCatalog),
+                                currentScale: _getCurrentScale(),
+                                hideLeftBorder: hideLeft,
+                                hideRightBorder: hideRight,
+                                hideTopBorder: hideTop,
+                                hideBottomBorder: hideBottom,
+                                hideLeftRanges: leftRanges,
+                                hideRightRanges: rightRanges,
+                                hideTopRanges: topRanges,
+                                hideBottomRanges: bottomRanges,
                                 onFrameTap: () {},
                                 onPanelTap: (_) {},
                                 onFrameDrag: (_) {},
@@ -1531,6 +2595,87 @@ class _DesignBuilderPageState extends State<DesignBuilderPage> with SingleTicker
               ),
             ),
           ),
+
+        // Vertical Zoom Control Slider
+        Positioned(
+          right: 12,
+          top: 12,
+          child: Container(
+            width: 48,
+            height: 240,
+            decoration: BoxDecoration(
+              color: const Color(0xE61A1A1A), // Dark glassmorphic background matching the bottom bar / top bar
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(color: Colors.white.withAlpha(20), width: 1.5),
+              boxShadow: const [
+                BoxShadow(
+                  color: Colors.black26,
+                  blurRadius: 8,
+                  offset: Offset(0, 3),
+                )
+              ],
+            ),
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Column(
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.zoom_in, color: Colors.white, size: 20),
+                  onPressed: () {
+                    final currentScale = _getCurrentScale();
+                    _updateScale(currentScale + 0.2);
+                  },
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                  tooltip: 'Perbesar',
+                ),
+                Expanded(
+                  child: SliderTheme(
+                    data: SliderThemeData(
+                      trackHeight: 3,
+                      activeTrackColor: const Color(0xFFFF6D00),
+                      inactiveTrackColor: Colors.white24,
+                      thumbColor: const Color(0xFFFF6D00),
+                      overlayColor: const Color(0x33FF6D00),
+                      thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                      overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
+                    ),
+                    child: RotatedBox(
+                      quarterTurns: 3,
+                      child: Slider(
+                        value: _getCurrentScale().clamp(0.2, 4.0),
+                        min: 0.2,
+                        max: 4.0,
+                        onChanged: (val) {
+                          _updateScale(val);
+                        },
+                      ),
+                    ),
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.zoom_out, color: Colors.white, size: 20),
+                  onPressed: () {
+                    final currentScale = _getCurrentScale();
+                    _updateScale(currentScale - 0.2);
+                  },
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                  tooltip: 'Perkecil',
+                ),
+                const Divider(color: Colors.white24, height: 10, thickness: 1),
+                Text(
+                  '${(_getCurrentScale() * 100).toStringAsFixed(0)}%',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                    fontFamily: 'monospace',
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
 
         // Floating action buttons (Create, Undo, New Design)
         Positioned(
@@ -1585,11 +2730,7 @@ class _DesignBuilderPageState extends State<DesignBuilderPage> with SingleTicker
     if (panel == null) return const SizedBox();
     final isLeaf = panel.isLeaf;
     final frame = _getFrameForPanel(panel.id);
-
-    final hasSwing = panel.openingType == OpeningType.casement ||
-                     panel.openingType == OpeningType.glassSingle ||
-                     panel.openingType == OpeningType.acpSingle ||
-                     panel.openingType == OpeningType.panelSingle;
+    final isDouble = panel.opening.direction == 'double' || panel.opening.leafCount > 1;
 
     return Positioned(
       bottom: 70,
@@ -1618,17 +2759,52 @@ class _DesignBuilderPageState extends State<DesignBuilderPage> with SingleTicker
                   ),
                   const Divider(color: Colors.white12, height: 12),
                 ],
-                if (hasSwing) ...[
-                  _toolbarSection('BUKAAN / ARAH SWING', [
+                
+                // Door options
+                if (panel.opening.category == 'door') ...[
+                  _toolbarSection('KONFIGURASI PINTU', [
+                    _tDoorConfigBtn(panel, false, 'Single Door'),
+                    _tDoorConfigBtn(panel, true, 'Double Door'),
+                  ]),
+                  const Divider(color: Colors.white12, height: 12),
+                  
+                  if (isDouble) ...[
+                    _toolbarSection('BUKAAN PINTU DOUBLE', [
+                      _tDoubleDoorOpeningBtn(panel, 'swing', 'Swing'),
+                      _tDoubleDoorOpeningBtn(panel, 'sliding', 'Sliding'),
+                    ]),
+                    const Divider(color: Colors.white12, height: 12),
+                  ] else ...[
+                    _toolbarSection('BUKAAN PINTU SINGLE', [
+                      _tSingleDoorOpeningBtn(panel, 'swing', 'left', 'Swing Kiri'),
+                      _tSingleDoorOpeningBtn(panel, 'swing', 'right', 'Swing Kanan'),
+                      _tSingleDoorOpeningBtn(panel, 'sliding', 'left', 'Sliding Kiri'),
+                      _tSingleDoorOpeningBtn(panel, 'sliding', 'right', 'Sliding Kanan'),
+                    ]),
+                    const Divider(color: Colors.white12, height: 12),
+                  ]
+                ],
+
+                // Window swing direction
+                if (panel.opening.category == 'window' && panel.opening.type == 'casement') ...[
+                  _toolbarSection('ARAH BUKAAN JENDELA', [
                     _tSwingBtn(panel, 'left', Icons.arrow_back_rounded, 'Kiri'),
                     _tSwingBtn(panel, 'right', Icons.arrow_forward_rounded, 'Kanan'),
-                    if (panel.openingType == OpeningType.casement) ...[
-                      _tSwingBtn(panel, 'top', Icons.arrow_upward_rounded, 'Atas'),
-                      _tSwingBtn(panel, 'bottom', Icons.arrow_downward_rounded, 'Bawah'),
-                    ],
+                    _tSwingBtn(panel, 'top', Icons.arrow_upward_rounded, 'Atas'),
+                    _tSwingBtn(panel, 'bottom', Icons.arrow_downward_rounded, 'Bawah'),
                   ]),
                   const Divider(color: Colors.white12, height: 12),
                 ],
+
+                // Window frame profile counts
+                if (frame != null && (frame.type == FrameType.jendela || panel.opening.category == 'window')) ...[
+                  _toolbarSection('PROFIL BINGKAI JENDELA', [
+                    _tProfileBtn(frame, 2, '2 Profil'),
+                    _tProfileBtn(frame, 3, '3 Profil'),
+                  ]),
+                  const Divider(color: Colors.white12, height: 12),
+                ],
+
                 _toolbarSection('FRAME', [
                   _tBtn(Icons.copy_rounded, 'Duplikat', _duplicateSelectedFrame),
                   _tBtn(Icons.delete_forever_rounded, 'Hapus Frame', _deleteSelectedFrame, color: const Color(0xFFEF5350)),
@@ -1642,7 +2818,7 @@ class _DesignBuilderPageState extends State<DesignBuilderPage> with SingleTicker
   }
 
   Widget _tSwingBtn(PanelNode panel, String direction, IconData icon, String label) {
-    final active = panel.swingDirection == direction;
+    final active = panel.opening.direction == direction;
     final color = active ? const Color(0xFFFF6D00) : Colors.white70;
     final bg = active ? const Color(0xFFFF6D00).withAlpha(45) : Colors.white.withAlpha(12);
     
@@ -1653,7 +2829,7 @@ class _DesignBuilderPageState extends State<DesignBuilderPage> with SingleTicker
         onTap: () {
           _saveToHistory();
           setState(() {
-            panel.swingDirection = direction;
+            panel.opening.direction = direction;
           });
         },
         borderRadius: BorderRadius.circular(7),
@@ -1667,6 +2843,117 @@ class _DesignBuilderPageState extends State<DesignBuilderPage> with SingleTicker
               Text(label, style: TextStyle(color: color, fontSize: 10, fontWeight: active ? FontWeight.bold : FontWeight.w500)),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _tDoorConfigBtn(PanelNode panel, bool isDouble, String label) {
+    final currentIsDouble = panel.opening.direction == 'double' || panel.opening.leafCount > 1;
+    final active = currentIsDouble == isDouble;
+    final color = active ? const Color(0xFFFF6D00) : Colors.white70;
+    final bg = active ? const Color(0xFFFF6D00).withAlpha(45) : Colors.white.withAlpha(12);
+    
+    return Material(
+      color: bg,
+      borderRadius: BorderRadius.circular(7),
+      child: InkWell(
+        onTap: () {
+          _saveToHistory();
+          setState(() {
+            if (isDouble) {
+              panel.opening.direction = 'double';
+              panel.opening.leafCount = 2;
+            } else {
+              panel.opening.direction = 'left';
+              panel.opening.leafCount = 1;
+            }
+          });
+          _updateEstimatedPrice();
+        },
+        borderRadius: BorderRadius.circular(7),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+          child: Text(label, style: TextStyle(color: color, fontSize: 10, fontWeight: active ? FontWeight.bold : FontWeight.w500)),
+        ),
+      ),
+    );
+  }
+
+  Widget _tDoubleDoorOpeningBtn(PanelNode panel, String type, String label) {
+    final active = panel.opening.type == type;
+    final color = active ? const Color(0xFFFF6D00) : Colors.white70;
+    final bg = active ? const Color(0xFFFF6D00).withAlpha(45) : Colors.white.withAlpha(12);
+    
+    return Material(
+      color: bg,
+      borderRadius: BorderRadius.circular(7),
+      child: InkWell(
+        onTap: () {
+          _saveToHistory();
+          setState(() {
+            panel.opening.type = type;
+            panel.opening.direction = 'double';
+            panel.opening.leafCount = 2;
+          });
+          _updateEstimatedPrice();
+        },
+        borderRadius: BorderRadius.circular(7),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+          child: Text(label, style: TextStyle(color: color, fontSize: 10, fontWeight: active ? FontWeight.bold : FontWeight.w500)),
+        ),
+      ),
+    );
+  }
+
+  Widget _tSingleDoorOpeningBtn(PanelNode panel, String type, String direction, String label) {
+    final active = panel.opening.type == type && panel.opening.direction == direction;
+    final color = active ? const Color(0xFFFF6D00) : Colors.white70;
+    final bg = active ? const Color(0xFFFF6D00).withAlpha(45) : Colors.white.withAlpha(12);
+    
+    return Material(
+      color: bg,
+      borderRadius: BorderRadius.circular(7),
+      child: InkWell(
+        onTap: () {
+          _saveToHistory();
+          setState(() {
+            panel.opening.type = type;
+            panel.opening.direction = direction;
+            panel.opening.leafCount = 1;
+          });
+          _updateEstimatedPrice();
+        },
+        borderRadius: BorderRadius.circular(7),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+          child: Text(label, style: TextStyle(color: color, fontSize: 10, fontWeight: active ? FontWeight.bold : FontWeight.w500)),
+        ),
+      ),
+    );
+  }
+
+  Widget _tProfileBtn(FrameNode frame, int count, String label) {
+    final active = frame.profileCount == count;
+    final color = active ? const Color(0xFFFF6D00) : Colors.white70;
+    final bg = active ? const Color(0xFFFF6D00).withAlpha(45) : Colors.white.withAlpha(12);
+    
+    return Material(
+      color: bg,
+      borderRadius: BorderRadius.circular(7),
+      child: InkWell(
+        onTap: () {
+          _saveToHistory();
+          setState(() {
+            frame.profileCount = count;
+          });
+          _updateEstimatedPrice();
+        },
+        borderRadius: BorderRadius.circular(7),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+          child: Text(label, style: TextStyle(color: color, fontSize: 10, fontWeight: active ? FontWeight.bold : FontWeight.w500)),
         ),
       ),
     );
@@ -1828,33 +3115,4 @@ class _DesignBuilderPageState extends State<DesignBuilderPage> with SingleTicker
       ),
     );
   }
-}
-
-class _GridPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    // Minor grid (every 20px = 5cm)
-    final minor = Paint()..color = const Color(0xFFE0E0D8)..strokeWidth = 0.5;
-    for (double x = 0; x < size.width; x += 20) {
-      canvas.drawLine(Offset(x, 0), Offset(x, size.height), minor);
-    }
-    for (double y = 0; y < size.height; y += 20) {
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), minor);
-    }
-    // Major grid (every 200px = 50cm)
-    final major = Paint()..color = const Color(0xFFCCCCC4)..strokeWidth = 1.0;
-    for (double x = 0; x < size.width; x += 200) {
-      canvas.drawLine(Offset(x, 0), Offset(x, size.height), major);
-    }
-    for (double y = 0; y < size.height; y += 200) {
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), major);
-    }
-    // Origin crosshair
-    final origin = Paint()..color = const Color(0xFFB0B0A8)..strokeWidth = 1.5;
-    canvas.drawLine(Offset(size.width / 2, 0), Offset(size.width / 2, size.height), origin);
-    canvas.drawLine(Offset(0, size.height / 2), Offset(size.width, size.height / 2), origin);
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter old) => false;
 }

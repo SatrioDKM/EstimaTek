@@ -239,13 +239,56 @@ class PdfGenerator {
           final rw = frame.renderWidth * scale;
           final rh = frame.renderHeight * scale;
 
+          bool hideLeft = false;
+          bool hideRight = false;
+          bool hideTop = false;
+          bool hideBottom = false;
+
+          const double borderThreshold = 3.0;
+          for (final other in project.frames) {
+            if (other.id == frame.id) continue;
+            
+            final wA = frame.renderWidth;
+            final hA = frame.renderHeight;
+            final wB = other.renderWidth;
+            final hB = other.renderHeight;
+            
+            // Left border touches other's right
+            if ((frame.x - (other.x + wB)).abs() < borderThreshold) {
+              final overlap = min(frame.y + hA, other.y + hB) - max(frame.y, other.y);
+              if (overlap > 1.0) hideLeft = true;
+            }
+            // Right border touches other's left
+            if (((frame.x + wA) - other.x).abs() < borderThreshold) {
+              final overlap = min(frame.y + hA, other.y + hB) - max(frame.y, other.y);
+              if (overlap > 1.0) hideRight = true;
+            }
+            // Top border touches other's bottom
+            if ((frame.y - (other.y + hB)).abs() < borderThreshold) {
+              final overlap = min(frame.x + wA, other.x + wB) - max(frame.x, other.x);
+              if (overlap > 1.0) hideTop = true;
+            }
+            // Bottom border touches other's top
+            if (((frame.y + hA) - other.y).abs() < borderThreshold) {
+              final overlap = min(frame.x + wA, other.x + wB) - max(frame.x, other.x);
+              if (overlap > 1.0) hideBottom = true;
+            }
+          }
+
           return pw.Positioned(
             left: rx,
             top: ry,
             child: pw.SizedBox(
               width: rw,
               height: rh,
-              child: _buildFrameDrawing(frame, scale),
+              child: _buildFrameDrawing(
+                frame,
+                scale,
+                hideLeft: hideLeft,
+                hideRight: hideRight,
+                hideTop: hideTop,
+                hideBottom: hideBottom,
+              ),
             ),
           );
         }).toList(),
@@ -253,16 +296,31 @@ class PdfGenerator {
     );
   }
 
-  static pw.Widget _buildFrameDrawing(FrameNode frame, double scale) {
+  static pw.Widget _buildFrameDrawing(
+    FrameNode frame,
+    double scale, {
+    bool hideLeft = false,
+    bool hideRight = false,
+    bool hideTop = false,
+    bool hideBottom = false,
+  }) {
     return pw.Container(
       decoration: pw.BoxDecoration(
         border: pw.Border(
-          left: const pw.BorderSide(color: PdfColors.black, width: 0.8),
-          right: const pw.BorderSide(color: PdfColors.black, width: 0.8),
-          top: const pw.BorderSide(color: PdfColors.black, width: 0.8),
-          bottom: frame.type == FrameType.pintu
-              ? const pw.BorderSide(color: PdfColors.grey500, width: 0.8, style: pw.BorderStyle.dashed)
+          left: hideLeft
+              ? pw.BorderSide.none
               : const pw.BorderSide(color: PdfColors.black, width: 0.8),
+          right: hideRight
+              ? pw.BorderSide.none
+              : const pw.BorderSide(color: PdfColors.black, width: 0.8),
+          top: hideTop
+              ? pw.BorderSide.none
+              : const pw.BorderSide(color: PdfColors.black, width: 0.8),
+          bottom: hideBottom
+              ? pw.BorderSide.none
+              : (frame.type == FrameType.pintu
+                  ? const pw.BorderSide(color: PdfColors.grey500, width: 0.8, style: pw.BorderStyle.dashed)
+                  : const pw.BorderSide(color: PdfColors.black, width: 0.8)),
         ),
       ),
       child: _buildPanelDrawing(frame.rootPanel, scale),
@@ -274,11 +332,11 @@ class PdfGenerator {
       return pw.Container(
         decoration: pw.BoxDecoration(
           border: pw.Border.all(color: PdfColors.black, width: 0.4),
-          color: _getPanelPdfColor(panel.openingType),
+          color: _getPanelPdfColor(panel.opening),
         ),
         child: pw.Center(
           child: pw.Text(
-            panel.openingType.shortLabel,
+            panel.opening.shortLabel,
             style: pw.TextStyle(fontSize: 3, fontWeight: pw.FontWeight.bold, color: PdfColors.black),
           ),
         ),
@@ -291,22 +349,18 @@ class PdfGenerator {
     return isH ? pw.Row(children: children) : pw.Column(children: children);
   }
 
-  static PdfColor _getPanelPdfColor(OpeningType type) {
-    switch (type) {
-      case OpeningType.fixed: return PdfColor.fromHex('#E8F4FD');
-      case OpeningType.casement: return PdfColor.fromHex('#FFF8E1');
-      case OpeningType.louvre: return PdfColor.fromHex('#EFEBE9');
-      case OpeningType.folding3:
-      case OpeningType.folding4:
-        return PdfColor.fromHex('#F3E5F5');
-      case OpeningType.slidingLeftRight:
-      case OpeningType.slidingUpDown:
-      case OpeningType.sliding2Daun:
-      case OpeningType.sliding3Daun:
-      case OpeningType.sliding4Daun:
-        return PdfColor.fromHex('#E8F5E9');
-      default:
-        return PdfColor.fromHex('#FCE4EC');
+  static PdfColor _getPanelPdfColor(OpeningTypeNode opening) {
+    switch (opening.type) {
+      case 'fixed':    return PdfColor.fromHex('#E8F4FD');
+      case 'casement': return PdfColor.fromHex('#FFF8E1');
+      case 'louvre':   return PdfColor.fromHex('#EFEBE9');
+      case 'folding':  return PdfColor.fromHex('#F3E5F5');
+      case 'sliding':
+        return opening.category == 'door'
+            ? PdfColor.fromHex('#E8F5E9')
+            : PdfColor.fromHex('#E0F7FA');
+      case 'swing':    return PdfColor.fromHex('#FCE4EC');
+      default:         return PdfColor.fromHex('#F5F5F5');
     }
   }
 

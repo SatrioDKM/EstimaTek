@@ -67,6 +67,7 @@ class _CreateQuotationPageState extends State<CreateQuotationPage> {
             children: [
               TextFormField(
                 controller: _nameController,
+                style: const TextStyle(color: Colors.black87),
                 decoration: const InputDecoration(
                   labelText: 'Nama Customer',
                   prefixIcon: Icon(Icons.person),
@@ -76,6 +77,7 @@ class _CreateQuotationPageState extends State<CreateQuotationPage> {
               const SizedBox(height: 16),
               TextFormField(
                 controller: _phoneController,
+                style: const TextStyle(color: Colors.black87),
                 decoration: const InputDecoration(
                   labelText: 'No. WhatsApp',
                   prefixIcon: Icon(Icons.phone),
@@ -85,6 +87,7 @@ class _CreateQuotationPageState extends State<CreateQuotationPage> {
               const SizedBox(height: 16),
               TextFormField(
                 controller: _addressController,
+                style: const TextStyle(color: Colors.black87),
                 decoration: const InputDecoration(
                   labelText: 'Alamat Proyek',
                   prefixIcon: Icon(Icons.location_on),
@@ -94,6 +97,7 @@ class _CreateQuotationPageState extends State<CreateQuotationPage> {
               const SizedBox(height: 16),
               TextFormField(
                 controller: _notesController,
+                style: const TextStyle(color: Colors.black87),
                 decoration: const InputDecoration(
                   labelText: 'Catatan Tambahan',
                   prefixIcon: Icon(Icons.notes),

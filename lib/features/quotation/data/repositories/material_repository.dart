@@ -1,3 +1,4 @@
+import 'package:sqflite/sqflite.dart';
 import '../../../../core/database/database_helper.dart';
 
 class MaterialModel {
@@ -54,6 +55,24 @@ class MaterialRepository {
     await db.update(
       'materials',
       {'price': newPrice},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  Future<void> insertMaterial(MaterialModel material) async {
+    final db = await _dbHelper.database;
+    await db.insert(
+      'materials',
+      material.toMap(),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<void> deleteMaterial(String id) async {
+    final db = await _dbHelper.database;
+    await db.delete(
+      'materials',
       where: 'id = ?',
       whereArgs: [id],
     );

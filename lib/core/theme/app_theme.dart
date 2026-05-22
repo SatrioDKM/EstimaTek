@@ -4,7 +4,9 @@ import 'package:google_fonts/google_fonts.dart';
 class AppTheme {
   static ThemeData get lightTheme {
     return ThemeData(
+      brightness: Brightness.light,
       colorScheme: ColorScheme.fromSeed(
+        brightness: Brightness.light,
         seedColor: Colors.blueGrey,
         primary: const Color(0xFF263238), // BlueGrey 900
         secondary: const Color(0xFF455A64), // BlueGrey 700
@@ -12,7 +14,7 @@ class AppTheme {
         surfaceContainerHighest: const Color(0xFFF5F7FA),
       ),
       useMaterial3: true,
-      textTheme: GoogleFonts.interTextTheme(),
+      textTheme: GoogleFonts.interTextTheme(ThemeData.light().textTheme),
       appBarTheme: const AppBarTheme(
         backgroundColor: Color(0xFF263238),
         foregroundColor: Colors.white,
@@ -35,6 +37,8 @@ class AppTheme {
         ),
         filled: true,
         fillColor: Colors.white,
+        labelStyle: const TextStyle(color: Colors.black54),
+        hintStyle: const TextStyle(color: Colors.black38),
       ),
     );
   }
