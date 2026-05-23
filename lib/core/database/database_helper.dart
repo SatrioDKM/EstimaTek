@@ -19,7 +19,7 @@ class DatabaseHelper {
     String path = join(await getDatabasesPath(), 'estimatek_v3.db');
     return await openDatabase(
       path,
-      version: 2,
+      version: 4,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -30,6 +30,29 @@ class DatabaseHelper {
       // Clear old materials and re-insert new ones for V2
       await db.delete('materials');
       await _insertDefaultMaterials(db);
+    }
+    if (oldVersion < 3) {
+      try {
+        await db.execute('ALTER TABLE materials ADD COLUMN is_deleted INTEGER DEFAULT 0');
+      } catch (e) {
+        // Ignore if column already exists
+      }
+    }
+    if (oldVersion < 4) {
+      // Data migrations for existing users
+      // 1. Rename Daun Jendela profiles
+      await db.execute("UPDATE materials SET name = REPLACE(name, '3 Profil', '2 Profil') WHERE category = 'Daun Jendela' AND name LIKE '%3 Profil%'");
+      await db.execute("UPDATE materials SET name = REPLACE(name, '4 Profil', '3 Profil') WHERE category = 'Daun Jendela' AND name LIKE '%4 Profil%'");
+      
+      // 2. Soft delete old Accessories
+      try {
+        await db.execute("UPDATE materials SET is_deleted = 1 WHERE category = 'Aksesoris'");
+      } catch (e) {
+        // Ignore if fails
+      }
+
+      // 3. Insert Ornament Kaca
+      await db.execute("INSERT OR IGNORE INTO materials (id, category, name, price, unit, rules, is_deleted) VALUES ('o_kaca_1', 'Ornament', 'Ornament Kaca', 20000.0, 'm', '{}', 0)");
     }
   }
 
@@ -64,7 +87,8 @@ class DatabaseHelper {
         name TEXT,
         price REAL,
         unit TEXT,
-        rules TEXT
+        rules TEXT,
+        is_deleted INTEGER DEFAULT 0
       )
     ''');
 
@@ -83,12 +107,12 @@ class DatabaseHelper {
       {'id': 'k_ykk_4', 'category': 'Kusen', 'name': 'YKK Kusen 4 inch', 'price': 170000.0, 'unit': 'm1', 'rules': '{}'},
 
       // === DAUN JENDELA ===
-      {'id': 'j_ink_3', 'category': 'Daun Jendela', 'name': 'Inkalum Jendela 3 Profil', 'price': 195000.0, 'unit': 'm1', 'rules': '{}'},
-      {'id': 'j_ink_4', 'category': 'Daun Jendela', 'name': 'Inkalum Jendela 4 Profil', 'price': 225000.0, 'unit': 'm1', 'rules': '{}'},
-      {'id': 'j_ale_3', 'category': 'Daun Jendela', 'name': 'Alexindo Jendela 3 Profil', 'price': 220000.0, 'unit': 'm1', 'rules': '{}'},
-      {'id': 'j_ale_4', 'category': 'Daun Jendela', 'name': 'Alexindo Jendela 4 Profil', 'price': 250000.0, 'unit': 'm1', 'rules': '{}'},
-      {'id': 'j_ykk_3', 'category': 'Daun Jendela', 'name': 'YKK Jendela 3 Profil', 'price': 250000.0, 'unit': 'm1', 'rules': '{}'},
-      {'id': 'j_ykk_4', 'category': 'Daun Jendela', 'name': 'YKK Jendela 4 Profil', 'price': 275000.0, 'unit': 'm1', 'rules': '{}'},
+      {'id': 'j_ink_3', 'category': 'Daun Jendela', 'name': 'Inkalum Jendela 2 Profil', 'price': 195000.0, 'unit': 'm1', 'rules': '{}'},
+      {'id': 'j_ink_4', 'category': 'Daun Jendela', 'name': 'Inkalum Jendela 3 Profil', 'price': 225000.0, 'unit': 'm1', 'rules': '{}'},
+      {'id': 'j_ale_3', 'category': 'Daun Jendela', 'name': 'Alexindo Jendela 2 Profil', 'price': 220000.0, 'unit': 'm1', 'rules': '{}'},
+      {'id': 'j_ale_4', 'category': 'Daun Jendela', 'name': 'Alexindo Jendela 3 Profil', 'price': 250000.0, 'unit': 'm1', 'rules': '{}'},
+      {'id': 'j_ykk_3', 'category': 'Daun Jendela', 'name': 'YKK Jendela 2 Profil', 'price': 250000.0, 'unit': 'm1', 'rules': '{}'},
+      {'id': 'j_ykk_4', 'category': 'Daun Jendela', 'name': 'YKK Jendela 3 Profil', 'price': 275000.0, 'unit': 'm1', 'rules': '{}'},
 
       // === SLIDING SET ===
       {'id': 'sw_ink_eko', 'category': 'Sliding Set', 'name': 'Inkalum Sliding Window Ekonomis', 'price': 315000.0, 'unit': 'm1', 'rules': '{}'},
@@ -133,13 +157,8 @@ class DatabaseHelper {
       {'id': 'g_polo_6', 'category': 'Kaca', 'name': 'Kaca Polos 6mm', 'price': 270000.0, 'unit': 'm2', 'rules': '{}'},
       {'id': 'g_ryb_5', 'category': 'Kaca', 'name': 'Kaca Ryben 5mm', 'price': 240000.0, 'unit': 'm2', 'rules': '{}'},
 
-      // === AKSESORIS ===
-      {'id': 'a_eng_cas', 'category': 'Aksesoris', 'name': 'Engsel Casement', 'price': 35000.0, 'unit': 'psg', 'rules': '{}'},
-      {'id': 'a_rod_sli', 'category': 'Aksesoris', 'name': 'Roda Sliding', 'price': 45000.0, 'unit': 'set', 'rules': '{}'},
-      {'id': 'a_eng_pin', 'category': 'Aksesoris', 'name': 'Engsel Pintu', 'price': 75000.0, 'unit': 'pcs', 'rules': '{}'},
-      {'id': 'a_kun_swi', 'category': 'Aksesoris', 'name': 'Kunci Pintu Swing', 'price': 150000.0, 'unit': 'set', 'rules': '{}'},
-      {'id': 'a_kun_sli', 'category': 'Aksesoris', 'name': 'Kunci Sliding', 'price': 60000.0, 'unit': 'set', 'rules': '{}'},
-      {'id': 'a_aks_lip', 'category': 'Aksesoris', 'name': 'Aksesoris Lipat', 'price': 300000.0, 'unit': 'set', 'rules': '{}'},
+      // === ORNAMENT ===
+      {'id': 'o_kaca_1', 'category': 'Ornament', 'name': 'Ornament Kaca', 'price': 20000.0, 'unit': 'm', 'rules': '{}'},
 
       // === JASA ===
       {'id': 'l_pasang', 'category': 'Jasa', 'name': 'Jasa Pasang', 'price': 50000.0, 'unit': 'm2', 'rules': '{}'},

@@ -2272,7 +2272,7 @@ class _DesignBuilderPageState extends State<DesignBuilderPage> with SingleTicker
 
   Widget _buildTopBar() {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: const BoxDecoration(
         color: Color(0xFF1A1A1A),
         boxShadow: [BoxShadow(color: Color(0x30000000), blurRadius: 8, offset: Offset(0, 2))],
@@ -2283,7 +2283,7 @@ class _DesignBuilderPageState extends State<DesignBuilderPage> with SingleTicker
             icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white, size: 18),
             onPressed: () => Navigator.pop(context),
             padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
           ),
           const Text('DESIGN BUILDER', style: TextStyle(
             color: Colors.white, fontSize: 13, fontWeight: FontWeight.w700,
@@ -2321,7 +2321,6 @@ class _DesignBuilderPageState extends State<DesignBuilderPage> with SingleTicker
     final List<Widget> children = [];
     switch (_activeMainTool) {
       case ToolMode.select:
-        children.add(const Text('SELECT: Tap & Drag objek untuk memodifikasi.', style: TextStyle(color: Colors.white70, fontSize: 11)));
         break;
       case ToolMode.frame:
         children.addAll([
@@ -2375,7 +2374,7 @@ class _DesignBuilderPageState extends State<DesignBuilderPage> with SingleTicker
     return Container(
       width: double.infinity,
       color: const Color(0xFF2C2C2C),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         child: Row(
@@ -2615,87 +2614,6 @@ class _DesignBuilderPageState extends State<DesignBuilderPage> with SingleTicker
               ),
             ),
           ),
-
-        // Vertical Zoom Control Slider
-        Positioned(
-          right: 12,
-          top: 12,
-          child: Container(
-            width: 48,
-            height: 240,
-            decoration: BoxDecoration(
-              color: const Color(0xE61A1A1A), // Dark glassmorphic background matching the bottom bar / top bar
-              borderRadius: BorderRadius.circular(24),
-              border: Border.all(color: Colors.white.withAlpha(20), width: 1.5),
-              boxShadow: const [
-                BoxShadow(
-                  color: Colors.black26,
-                  blurRadius: 8,
-                  offset: Offset(0, 3),
-                )
-              ],
-            ),
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            child: Column(
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.zoom_in, color: Colors.white, size: 20),
-                  onPressed: () {
-                    final currentScale = _getCurrentScale();
-                    _updateScale(currentScale + 0.2);
-                  },
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-                  tooltip: 'Perbesar',
-                ),
-                Expanded(
-                  child: SliderTheme(
-                    data: SliderThemeData(
-                      trackHeight: 3,
-                      activeTrackColor: const Color(0xFFFF6D00),
-                      inactiveTrackColor: Colors.white24,
-                      thumbColor: const Color(0xFFFF6D00),
-                      overlayColor: const Color(0x33FF6D00),
-                      thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-                      overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
-                    ),
-                    child: RotatedBox(
-                      quarterTurns: 3,
-                      child: Slider(
-                        value: _getCurrentScale().clamp(0.2, 4.0),
-                        min: 0.2,
-                        max: 4.0,
-                        onChanged: (val) {
-                          _updateScale(val);
-                        },
-                      ),
-                    ),
-                  ),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.zoom_out, color: Colors.white, size: 20),
-                  onPressed: () {
-                    final currentScale = _getCurrentScale();
-                    _updateScale(currentScale - 0.2);
-                  },
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-                  tooltip: 'Perkecil',
-                ),
-                const Divider(color: Colors.white24, height: 10, thickness: 1),
-                Text(
-                  '${(_getCurrentScale() * 100).toStringAsFixed(0)}%',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 10,
-                    fontWeight: FontWeight.bold,
-                    fontFamily: 'monospace',
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
 
         // Floating action buttons (Create, Undo, New Design)
         Positioned(
@@ -3041,7 +2959,7 @@ class _DesignBuilderPageState extends State<DesignBuilderPage> with SingleTicker
           children: [
             // Status Info
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
               color: const Color(0xFF111111),
               child: Row(
                 children: [
@@ -3070,10 +2988,10 @@ class _DesignBuilderPageState extends State<DesignBuilderPage> with SingleTicker
             ),
             // Slide horizontal toolbar
             SizedBox(
-              height: 64,
+              height: 52,
               child: ListView(
                 scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                 children: [
                   _toolBtn(ToolMode.select, Icons.ads_click_rounded, 'SELECT'),
                   const VerticalDivider(color: Colors.white12, width: 16, indent: 8, endIndent: 8),
@@ -3111,7 +3029,7 @@ class _DesignBuilderPageState extends State<DesignBuilderPage> with SingleTicker
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 150),
         margin: const EdgeInsets.only(right: 6),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
         decoration: BoxDecoration(
           color: active ? const Color(0xFFFF6D00) : Colors.white.withAlpha(8),
           borderRadius: BorderRadius.circular(8),

@@ -38,7 +38,7 @@ class PricingEngine {
   final MaterialRepository _materialRepo = MaterialRepository();
 
   Future<DesignPricingBreakdown> calculateDesignPrice(DesignCanvasModel design) async {
-    final dbMaterials = await _materialRepo.getMaterials();
+    final dbMaterials = await _materialRepo.getMaterials(includeDeleted: true);
     
     // Helper to find price by key or fallback to category default
     MaterialModel findMaterial(String category, String nameContains, double fallbackPrice) {
@@ -62,20 +62,12 @@ class PricingEngine {
     const slidingWindowType = 'Ekonomis';
 
     // Core materials
-    final matKusen = findMaterial('Kusen', '$brand Kusen $kusenSize', 120000);
-    final matJendelaDaun = findMaterial('Daun Jendela', '$brand Jendela $daunJendelaProfil', 250000);
+    final matKusen = findMaterial('Kusen', '$brand Kusen $kusenSize', 110000);
+    final matJendelaDaun = findMaterial('Daun Jendela', '$brand Jendela $daunJendelaProfil', 195000);
     final matSlidingWin = findMaterial('Sliding Set', '$brand Sliding Window $slidingWindowType', 345000);
     
-    final matKaca = findMaterial('Kaca', 'Kaca Polos 5mm', 180000);
-    final matEngselCasement = findMaterial('Aksesoris', 'Engsel Casement', 35000);
-    final matRodaSliding = findMaterial('Aksesoris', 'Roda Sliding', 45000);
+    final matKaca = findMaterial('Kaca', 'Kaca Polos 5mm', 220000);
     final matJasa = findMaterial('Jasa', 'Jasa Pasang', 50000);
-
-    // Accessories
-    final matEngselPintu = findMaterial('Aksesoris', 'Engsel Pintu', 75000);
-    final matKunciSwing = findMaterial('Aksesoris', 'Kunci Pintu Swing', 150000);
-    final matKunciSliding = findMaterial('Aksesoris', 'Kunci Sliding', 60000);
-    final matAksesorisLipat = findMaterial('Aksesoris', 'Aksesoris Lipat', 300000);
 
     double totalKusenMeters = 0;
     double totalMullionMeters = 0;
@@ -84,13 +76,6 @@ class PricingEngine {
     int countJendelaDaun = 0;
     double totalDaunJendelaMeters = 0;
     int countSlidingWinDaun = 0;
-
-    int countEngselCasement = 0;
-    int countRodaSliding = 0;
-    int countEngselPintu = 0;
-    int countKunciSwing = 0;
-    int countKunciSliding = 0;
-    int countAksesorisLipat = 0;
 
     final Map<String, _DoorPricingItem> doorItems = {};
 
@@ -127,12 +112,9 @@ class PricingEngine {
           // Count window leaves
           if (ot.type == 'casement') {
             countJendelaDaun += 1;
-            countEngselCasement += 1;
             totalDaunJendelaMeters += (2 * (w / 100)) + (2 * (h / 100));
           } else if (ot.type == 'sliding' && ot.category == 'window') {
             countSlidingWinDaun += 1;
-            countRodaSliding += 1;
-            countKunciSliding += 1;
           }
 
           // Doors Classification (Standar vs Besar)
@@ -148,23 +130,18 @@ class PricingEngine {
             final leafType = ot.leafCount >= 2 ? 'Double' : 'Single';
             final doorTypeKey = 'Pintu $matLabel $leafType';
             final doorMatName = '$brand $doorTypeKey $sizeClass';
-            final doorMat = findMaterial('Daun Pintu', doorMatName, 2000000);
+            final doorMat = findMaterial('Daun Pintu', doorMatName, 1600000);
             doorItems.putIfAbsent(doorMatName, () => _DoorPricingItem(doorMat.name, doorMat.price, 0)).count++;
-            countEngselPintu += ot.leafCount >= 2 ? 6 : 3;
-            countKunciSwing += 1;
           } else if (ot.type == 'folding' && ot.category == 'door') {
             final leafCount = ot.leafCount.clamp(2, 6);
             final foldMatName = '$brand Pintu Lipat per Daun';
-            final foldMat = findMaterial('Daun Pintu', foldMatName, 2000000);
+            final foldMat = findMaterial('Daun Pintu', foldMatName, 1600000);
             doorItems.putIfAbsent(foldMatName, () => _DoorPricingItem(foldMat.name, foldMat.price, 0)).count += leafCount;
-            countAksesorisLipat += 1;
           } else if (ot.type == 'sliding' && ot.category == 'door') {
             final leafCount = ot.leafCount.clamp(2, 6);
             final slideMatName = '$brand Pintu Geser per Daun';
-            final slideMat = findMaterial('Daun Pintu', slideMatName, 2000000);
+            final slideMat = findMaterial('Daun Pintu', slideMatName, 1600000);
             doorItems.putIfAbsent(slideMatName, () => _DoorPricingItem(slideMat.name, slideMat.price, 0)).count += leafCount;
-            countRodaSliding += leafCount * 2;
-            countKunciSliding += 1;
           }
         }
       );
@@ -229,63 +206,7 @@ class PricingEngine {
       ));
     }
 
-    // 6. Accessories
-    if (countEngselCasement > 0) {
-      breakdownItems.add(PricingItemBreakdown(
-        name: matEngselCasement.name,
-        quantity: countEngselCasement.toDouble(),
-        unit: 'psg',
-        unitPrice: matEngselCasement.price,
-        subtotal: countEngselCasement * matEngselCasement.price,
-      ));
-    }
-    if (countRodaSliding > 0) {
-      breakdownItems.add(PricingItemBreakdown(
-        name: matRodaSliding.name,
-        quantity: countRodaSliding.toDouble(),
-        unit: 'set',
-        unitPrice: matRodaSliding.price,
-        subtotal: countRodaSliding * matRodaSliding.price,
-      ));
-    }
-    if (countEngselPintu > 0) {
-      breakdownItems.add(PricingItemBreakdown(
-        name: matEngselPintu.name,
-        quantity: countEngselPintu.toDouble(),
-        unit: 'pcs',
-        unitPrice: matEngselPintu.price,
-        subtotal: countEngselPintu * matEngselPintu.price,
-      ));
-    }
-    if (countKunciSwing > 0) {
-      breakdownItems.add(PricingItemBreakdown(
-        name: matKunciSwing.name,
-        quantity: countKunciSwing.toDouble(),
-        unit: 'set',
-        unitPrice: matKunciSwing.price,
-        subtotal: countKunciSwing * matKunciSwing.price,
-      ));
-    }
-    if (countKunciSliding > 0) {
-      breakdownItems.add(PricingItemBreakdown(
-        name: matKunciSliding.name,
-        quantity: countKunciSliding.toDouble(),
-        unit: 'set',
-        unitPrice: matKunciSliding.price,
-        subtotal: countKunciSliding * matKunciSliding.price,
-      ));
-    }
-    if (countAksesorisLipat > 0) {
-      breakdownItems.add(PricingItemBreakdown(
-        name: matAksesorisLipat.name,
-        quantity: countAksesorisLipat.toDouble(),
-        unit: 'set',
-        unitPrice: matAksesorisLipat.price,
-        subtotal: countAksesorisLipat * matAksesorisLipat.price,
-      ));
-    }
-
-    // 7. Labor (Jasa Pasang)
+    // 6. Labor (Jasa Pasang)
     final double totalAreaSqm = design.frames.fold(0.0, (sum, f) => sum + (f.widthCm / 100 * f.heightCm / 100));
     if (totalAreaSqm > 0) {
       breakdownItems.add(PricingItemBreakdown(

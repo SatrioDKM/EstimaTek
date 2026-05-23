@@ -8,6 +8,7 @@ class MaterialModel {
   final double price;
   final String unit;
   final String rules;
+  final int isDeleted;
 
   MaterialModel({
     required this.id,
@@ -16,6 +17,7 @@ class MaterialModel {
     required this.price,
     required this.unit,
     this.rules = '{}',
+    this.isDeleted = 0,
   });
 
   Map<String, dynamic> toMap() {
@@ -26,6 +28,7 @@ class MaterialModel {
       'price': price,
       'unit': unit,
       'rules': rules,
+      'is_deleted': isDeleted,
     };
   }
 
@@ -37,6 +40,7 @@ class MaterialModel {
       price: (map['price'] as num).toDouble(),
       unit: map['unit'],
       rules: map['rules'] ?? '{}',
+      isDeleted: map['is_deleted'] ?? 0,
     );
   }
 }
@@ -44,19 +48,24 @@ class MaterialModel {
 class MaterialRepository {
   final DatabaseHelper _dbHelper = DatabaseHelper();
 
-  Future<List<MaterialModel>> getMaterials() async {
+  Future<List<MaterialModel>> getMaterials({bool includeDeleted = false}) async {
     final db = await _dbHelper.database;
-    final List<Map<String, dynamic>> maps = await db.query('materials', orderBy: 'category, name');
+    final where = includeDeleted ? null : 'is_deleted = 0';
+    final List<Map<String, dynamic>> maps = await db.query(
+      'materials',
+      where: where,
+      orderBy: 'category, name',
+    );
     return List.generate(maps.length, (i) => MaterialModel.fromMap(maps[i]));
   }
 
-  Future<void> updateMaterialPrice(String id, double newPrice) async {
+  Future<void> updateMaterial(MaterialModel material) async {
     final db = await _dbHelper.database;
     await db.update(
       'materials',
-      {'price': newPrice},
+      material.toMap(),
       where: 'id = ?',
-      whereArgs: [id],
+      whereArgs: [material.id],
     );
   }
 
@@ -71,8 +80,9 @@ class MaterialRepository {
 
   Future<void> deleteMaterial(String id) async {
     final db = await _dbHelper.database;
-    await db.delete(
+    await db.update(
       'materials',
+      {'is_deleted': 1},
       where: 'id = ?',
       whereArgs: [id],
     );

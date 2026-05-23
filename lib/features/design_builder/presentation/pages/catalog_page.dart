@@ -31,7 +31,7 @@ class _CatalogPageState extends State<CatalogPage> with SingleTickerProviderStat
     
     // Sort categories based on predefined order
     final predefinedOrder = [
-      'Kusen', 'Daun Pintu', 'Daun Jendela', 'Sliding Door', 'Sliding Set', 'Sliding Door / Window set jumbo & ekonomis', 'Kaca', 'Aksesoris', 'Jasa'
+      'Kusen', 'Daun Pintu', 'Daun Jendela', 'Sliding Door', 'Sliding Set', 'Sliding Door / Window set jumbo & ekonomis', 'Kaca', 'Ornament', 'Jasa'
     ];
     cats.sort((a, b) {
       int idxA = predefinedOrder.indexOf(a);
@@ -63,34 +63,50 @@ class _CatalogPageState extends State<CatalogPage> with SingleTickerProviderStat
     return _materials.where((m) => m.category.toLowerCase() == category.toLowerCase()).toList();
   }
 
-  void _editPrice(MaterialModel item) {
-    final controller = TextEditingController(text: item.price.toStringAsFixed(0));
+  void _editMaterial(MaterialModel item) {
+    final priceController = TextEditingController(text: item.price.toStringAsFixed(0));
+    final nameController = TextEditingController(text: item.name);
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: const Color(0xFF1E1E1E),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-        title: Text(
-          'Edit Harga: ${item.name}',
-          style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+        title: const Text(
+          'Edit Material',
+          style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
         ),
-        content: TextField(
-          controller: controller,
-          keyboardType: TextInputType.number,
-          style: const TextStyle(color: Colors.black87, fontFamily: 'monospace'),
-          autofocus: true,
-          decoration: InputDecoration(
-            labelText: 'Harga (Rp / ${item.unit})',
-            labelStyle: const TextStyle(color: Colors.black54),
-            hintText: 'Masukkan harga baru',
-            hintStyle: const TextStyle(color: Colors.black38),
-            suffixText: 'per ${item.unit}',
-            suffixStyle: const TextStyle(color: Colors.black45),
-            enabledBorder: const UnderlineInputBorder(borderSide: BorderSide(color: Colors.black26)),
-            focusedBorder: const UnderlineInputBorder(borderSide: BorderSide(color: Color(0xFFFF6D00))),
-            fillColor: Colors.white,
-            filled: true,
-          ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: nameController,
+              style: const TextStyle(color: Colors.black87),
+              decoration: const InputDecoration(
+                labelText: 'Nama / Spesifikasi',
+                labelStyle: TextStyle(color: Colors.black54),
+                enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.black26)),
+                focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: Color(0xFFFF6D00))),
+                fillColor: Colors.white,
+                filled: true,
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: priceController,
+              keyboardType: TextInputType.number,
+              style: const TextStyle(color: Colors.black87, fontFamily: 'monospace'),
+              decoration: InputDecoration(
+                labelText: 'Harga (Rp / ${item.unit})',
+                labelStyle: const TextStyle(color: Colors.black54),
+                suffixText: 'per ${item.unit}',
+                suffixStyle: const TextStyle(color: Colors.black45),
+                enabledBorder: const UnderlineInputBorder(borderSide: BorderSide(color: Colors.black26)),
+                focusedBorder: const UnderlineInputBorder(borderSide: BorderSide(color: Color(0xFFFF6D00))),
+                fillColor: Colors.white,
+                filled: true,
+              ),
+            ),
+          ],
         ),
         actions: [
           TextButton(
@@ -99,16 +115,26 @@ class _CatalogPageState extends State<CatalogPage> with SingleTickerProviderStat
           ),
           TextButton(
             onPressed: () async {
-              final newPrice = double.tryParse(controller.text);
-              if (newPrice != null && newPrice >= 0) {
+              final newPrice = double.tryParse(priceController.text);
+              final newName = nameController.text.trim();
+              if (newPrice != null && newPrice >= 0 && newName.isNotEmpty) {
                 final nav = Navigator.of(context);
-                await _repository.updateMaterialPrice(item.id, newPrice);
+                final updatedItem = MaterialModel(
+                  id: item.id,
+                  category: item.category,
+                  name: newName,
+                  price: newPrice,
+                  unit: item.unit,
+                  rules: item.rules,
+                  isDeleted: item.isDeleted,
+                );
+                await _repository.updateMaterial(updatedItem);
                 if (!mounted) return;
                 nav.pop();
                 _loadMaterials();
               } else {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Harga tidak valid.')),
+                  const SnackBar(content: Text('Nama atau harga tidak valid.')),
                 );
               }
             },
@@ -325,9 +351,9 @@ class _CatalogPageState extends State<CatalogPage> with SingleTickerProviderStat
           'Hapus Item Katalog?',
           style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
         ),
-        content: Text(
-          'Apakah Anda yakin ingin menghapus "${item.name}" dari katalog?',
-          style: const TextStyle(color: Colors.white70, fontSize: 14),
+        content: const Text(
+          'Apakah Anda yakin ingin menghapus material ini? Material yang dihapus tidak akan muncul lagi di katalog baru, namun proyek berjalan yang menggunakan material ini akan tetap mempertahankan kalkulasi harga sebelumnya.',
+          style: TextStyle(color: Colors.white70, fontSize: 14),
         ),
         actions: [
           TextButton(
@@ -421,8 +447,8 @@ class _CatalogPageState extends State<CatalogPage> with SingleTickerProviderStat
               children: [
                 IconButton(
                   icon: const Icon(Icons.edit_outlined, color: Color(0xFFFF6D00)),
-                  onPressed: () => _editPrice(item),
-                  tooltip: 'Edit Harga',
+                  onPressed: () => _editMaterial(item),
+                  tooltip: 'Edit Material',
                 ),
                 IconButton(
                   icon: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent),
